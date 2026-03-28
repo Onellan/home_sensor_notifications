@@ -1,0 +1,25 @@
+send_test_notification:
+  name: Send test notification
+  description: Send a test notification using Home Sensor Notifications.
+  fields:
+    sensor:
+      name: Sensor
+      description: Optional sensor entity to reference in the message.
+      example: binary_sensor.front_door
+      selector:
+        entity:
+          domain: binary_sensor
+    targets:
+      name: Targets
+      description: Optional override list of notify service names.
+      example:
+        - mobile_app_pixel_8
+        - mobile_app_iphone
+      selector:
+        object:
+    message:
+      name: Message
+      description: Optional custom test message.
+      example: Front door test notification.
+      selector:
+        text:

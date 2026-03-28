@@ -1,0 +1,14 @@
+{
+  "domain": "home_sensor_notifications",
+  "name": "Home Sensor Notifications",
+  "version": "1.1.0",
+  "documentation": "https://github.com/onellan/home-sensor-notifications",
+  "issue_tracker": "https://github.com/onellan/home-sensor-notifications/issues",
+  "codeowners": ["@onellan"],
+  "config_flow": true,
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "requirements": [],
+  "dependencies": ["frontend", "panel_custom", "http", "websocket_api"],
+  "after_dependencies": ["mobile_app"]
+}

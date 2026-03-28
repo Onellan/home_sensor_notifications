@@ -1,0 +1,10 @@
+{
+  "title": "Home Sensor Notifications",
+  "entity": {
+    "switch": {
+      "enabled": {
+        "name": "Enabled"
+      }
+    }
+  }
+}

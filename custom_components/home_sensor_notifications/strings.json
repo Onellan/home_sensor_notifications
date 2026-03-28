@@ -1,0 +1,76 @@
+{
+  "title": "Home Sensor Notifications",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Home Sensor Notifications",
+        "description": "Configure the sensors to monitor, the notification targets, reminder interval, enable toggle, and notification message mode.",
+        "data": {
+          "monitored_sensors": "Door / window sensors to monitor",
+          "notify_targets": "Notification targets",
+          "reminder_minutes": "Reminder interval (minutes)",
+          "enabled": "Notifications enabled",
+          "notification_mode": "Notification message mode",
+          "global_open_message": "Message when a monitored sensor opens",
+          "global_reminder_message": "Reminder message while a monitored sensor stays open",
+          "sensor_messages": "Per-sensor message map (advanced JSON, optional)"
+        }
+      },
+      "reconfigure": {
+        "title": "Home Sensor Notifications",
+        "description": "Update the monitored sensors, notify targets, reminder interval, toggle, and notification messages.",
+        "data": {
+          "monitored_sensors": "Door / window sensors to monitor",
+          "notify_targets": "Notification targets",
+          "reminder_minutes": "Reminder interval (minutes)",
+          "enabled": "Notifications enabled",
+          "notification_mode": "Notification message mode",
+          "global_open_message": "Message when a monitored sensor opens",
+          "global_reminder_message": "Reminder message while a monitored sensor stays open",
+          "sensor_messages": "Per-sensor message map (advanced JSON, optional)"
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Home Sensor Notifications configuration is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Home Sensor Notifications",
+        "description": "Update the monitored sensors, notification targets, reminder interval, toggle, and message settings.",
+        "data": {
+          "monitored_sensors": "Door / window sensors to monitor",
+          "notify_targets": "Notification targets",
+          "reminder_minutes": "Reminder interval (minutes)",
+          "enabled": "Notifications enabled",
+          "notification_mode": "Notification message mode",
+          "global_open_message": "Message when a monitored sensor opens",
+          "global_reminder_message": "Reminder message while a monitored sensor stays open",
+          "sensor_messages": "Per-sensor message map (advanced JSON, optional)"
+        }
+      }
+    }
+  },
+  "services": {
+    "send_test_notification": {
+      "name": "Send test notification",
+      "description": "Sends a test notification to the configured or supplied targets.",
+      "fields": {
+        "sensor": {
+          "name": "Sensor",
+          "description": "Optional sensor entity to include in the test message."
+        },
+        "targets": {
+          "name": "Targets",
+          "description": "Optional override list of notify service names to send to."
+        },
+        "message": {
+          "name": "Message",
+          "description": "Optional custom test message."
+        }
+      }
+    }
+  }
+}
