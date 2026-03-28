@@ -258,7 +258,7 @@ class HomeSensorNotificationsManager:
         sensor_state.reminder_cancel = async_call_later(
             self.hass,
             timedelta(minutes=self.reminder_minutes),
-            lambda _: self.hass.async_create_task(self._async_send_reminder(entity_id)),
+            lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
         )
 
     async def _async_send_reminder(self, entity_id: str) -> None:
@@ -278,7 +278,7 @@ class HomeSensorNotificationsManager:
         sensor_state.reminder_cancel = async_call_later(
             self.hass,
             timedelta(minutes=self.reminder_minutes),
-            lambda _: self.hass.async_create_task(self._async_send_reminder(entity_id)),
+            lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
         )
 
     def _render_message(self, entity_id: str, is_reminder: bool) -> str:
@@ -365,7 +365,6 @@ class HomeSensorNotificationsManager:
         }
 
         if critical:
-            # Android companion app: use the alarm stream/high priority.
             data.update(
                 {
                     "ttl": 0,
@@ -374,7 +373,6 @@ class HomeSensorNotificationsManager:
                     "media_stream": "alarm_stream",
                 }
             )
-            # iOS companion app: critical alert payload.
             ios_sound: dict[str, Any] = {
                 "critical": 1,
                 "volume": 1.0,
