@@ -237,7 +237,7 @@ class HomeSensorNotificationsManager:
 
         if new_state.state == STATE_OPEN:
             await self._mark_open(entity_id, send_initial=True)
-        elif new_state.state == STATE_CLOSED:
+        else:
             self._clear_sensor(entity_id)
 
     async def _mark_open(self, entity_id: str, send_initial: bool) -> None:
@@ -253,6 +253,7 @@ class HomeSensorNotificationsManager:
             await self._send_notification(
                 self._render_message(entity_id, is_reminder=False),
                 self.notify_targets,
+                entity_id=entity_id,
             )
 
         sensor_state.reminder_cancel = async_call_later(
@@ -273,6 +274,7 @@ class HomeSensorNotificationsManager:
             await self._send_notification(
                 self._render_message(entity_id, is_reminder=True),
                 self.notify_targets,
+                entity_id=entity_id,
             )
 
         sensor_state.reminder_cancel = async_call_later(
@@ -302,37 +304,76 @@ class HomeSensorNotificationsManager:
             fallback = DEFAULT_GLOBAL_REMINDER_MESSAGE if is_reminder else DEFAULT_GLOBAL_OPEN_MESSAGE
             return fallback.format(**context)
 
-    async def _send_notification(self, message: str, targets: list[str]) -> None:
+    async def _send_notification(
+        self,
+        message: str,
+        targets: list[str],
+        *,
+        entity_id: str | None = None,
+    ) -> None:
         if not targets:
             _LOGGER.warning("No notify targets configured for %s", self.entry.title)
             return
 
         for target in targets:
             try:
-                await self._send_notification_to_target(target, message)
+                await self._send_notification_to_target(target, message, entity_id=entity_id)
             except Exception:
                 _LOGGER.exception("Failed to send notification via notify.%s", target)
 
-    async def _send_notification_to_target(self, target: str, message: str) -> None:
+    async def _send_notification_to_target(
+        self,
+        target: str,
+        message: str,
+        *,
+        entity_id: str | None = None,
+        delivery_mode_override: str | None = None,
+        sound_enabled_override: bool | None = None,
+        sound_name_override: str | None = None,
+    ) -> None:
         target_config = self.target_settings.get(target, {})
-        delivery_mode = str(target_config.get(CONF_DELIVERY_MODE, self.delivery_mode))
-        if delivery_mode not in VALID_DELIVERY_MODES:
-            delivery_mode = self.delivery_mode
-        sound_enabled = bool(target_config.get(CONF_SOUND_ENABLED, self.sound_enabled))
-        sound_name = str(target_config.get(CONF_SOUND_NAME, self.sound_name))
+        delivery_mode = self._effective_delivery_mode(
+            target,
+            str(target_config.get(CONF_DELIVERY_MODE, self.delivery_mode)),
+            override=delivery_mode_override,
+        )
+        sound_enabled = (
+            bool(sound_enabled_override)
+            if sound_enabled_override is not None
+            else bool(target_config.get(CONF_SOUND_ENABLED, self.sound_enabled))
+        )
+        sound_name = (
+            str(sound_name_override)
+            if sound_name_override is not None
+            else str(target_config.get(CONF_SOUND_NAME, self.sound_name))
+        )
 
         if delivery_mode in (DELIVERY_MODE_NORMAL, DELIVERY_MODE_BOTH):
             await self._async_call_notify_service(
                 target,
                 message,
-                self._build_notify_payload(target, message, critical=False, sound_enabled=sound_enabled, sound_name=sound_name),
+                self._build_notify_payload(
+                    target,
+                    message,
+                    entity_id=entity_id,
+                    critical=False,
+                    sound_enabled=sound_enabled,
+                    sound_name=sound_name,
+                ),
             )
 
         if delivery_mode in (DELIVERY_MODE_CRITICAL, DELIVERY_MODE_BOTH):
             await self._async_call_notify_service(
                 target,
                 message,
-                self._build_notify_payload(target, message, critical=True, sound_enabled=sound_enabled, sound_name=sound_name),
+                self._build_notify_payload(
+                    target,
+                    message,
+                    entity_id=entity_id,
+                    critical=True,
+                    sound_enabled=sound_enabled,
+                    sound_name=sound_name,
+                ),
             )
 
     async def _async_call_notify_service(self, target: str, message: str, payload: dict[str, Any]) -> None:
@@ -348,6 +389,7 @@ class HomeSensorNotificationsManager:
         target: str,
         message: str,
         *,
+        entity_id: str | None,
         critical: bool,
         sound_enabled: bool,
         sound_name: str,
@@ -361,7 +403,7 @@ class HomeSensorNotificationsManager:
             return payload
 
         data: dict[str, Any] = {
-            "tag": f"{DOMAIN}_{target}",
+            "tag": self._notification_tag(target, entity_id),
         }
 
         if critical:
@@ -385,6 +427,29 @@ class HomeSensorNotificationsManager:
 
         payload["data"] = data
         return payload
+
+    def _effective_delivery_mode(
+        self,
+        target: str,
+        configured_mode: str,
+        *,
+        override: str | None = None,
+    ) -> str:
+        delivery_mode = override if override is not None else configured_mode
+        if delivery_mode not in VALID_DELIVERY_MODES:
+            delivery_mode = self.delivery_mode
+        if not self._supports_critical_notifications(target):
+            return DELIVERY_MODE_NORMAL
+        return delivery_mode
+
+    def _notification_tag(self, target: str, entity_id: str | None) -> str:
+        if entity_id is None:
+            return f"{DOMAIN}_{target}"
+        normalized_entity_id = entity_id.replace(".", "_")
+        return f"{DOMAIN}_{target}_{normalized_entity_id}"
+
+    def _supports_critical_notifications(self, target: str) -> bool:
+        return target.startswith("mobile_app_")
 
     def _friendly_name(self, entity_id: str) -> str:
         state = self.hass.states.get(entity_id)
@@ -502,34 +567,58 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
 
         entry = entries[0]
         config = dict(msg["config"])
+        available_targets = {item["entity_id"] for item in _available_notify_targets(hass)}
         cleaned_target_settings: dict[str, dict[str, Any]] = {}
         raw_target_settings = config.get(CONF_TARGET_SETTINGS, {})
         if isinstance(raw_target_settings, dict):
             for target, settings in raw_target_settings.items():
                 if not isinstance(settings, dict):
                     continue
+                target_name = str(target)
+                if target_name not in available_targets:
+                    continue
                 mode = str(settings.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE))
                 if mode not in VALID_DELIVERY_MODES:
                     mode = DEFAULT_DELIVERY_MODE
-                cleaned_target_settings[str(target)] = {
+                cleaned_target_settings[target_name] = {
                     CONF_DELIVERY_MODE: mode,
                     CONF_SOUND_ENABLED: bool(settings.get(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)),
                     CONF_SOUND_NAME: str(settings.get(CONF_SOUND_NAME, DEFAULT_SOUND_NAME)),
                 }
 
+        raw_monitored_sensors = config.get(CONF_MONITORED_SENSORS, [])
+        monitored_sensors = (
+            [str(entity_id) for entity_id in raw_monitored_sensors]
+            if isinstance(raw_monitored_sensors, list)
+            else []
+        )
+        raw_notify_targets = config.get(CONF_NOTIFY_TARGETS, [])
+        notify_targets = (
+            [str(target) for target in raw_notify_targets if str(target) in available_targets]
+            if isinstance(raw_notify_targets, list)
+            else []
+        )
         cleaned = {
-            CONF_MONITORED_SENSORS: list(config.get(CONF_MONITORED_SENSORS, [])),
-            CONF_NOTIFY_TARGETS: list(config.get(CONF_NOTIFY_TARGETS, [])),
+            CONF_MONITORED_SENSORS: monitored_sensors,
+            CONF_NOTIFY_TARGETS: notify_targets,
             CONF_REMINDER_MINUTES: max(1, int(config.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES))),
             CONF_ENABLED: bool(config.get(CONF_ENABLED, True)),
             CONF_NOTIFICATION_MODE: str(config.get(CONF_NOTIFICATION_MODE, DEFAULT_NOTIFICATION_MODE)),
             CONF_GLOBAL_OPEN_MESSAGE: str(config.get(CONF_GLOBAL_OPEN_MESSAGE, DEFAULT_GLOBAL_OPEN_MESSAGE)),
             CONF_GLOBAL_REMINDER_MESSAGE: str(config.get(CONF_GLOBAL_REMINDER_MESSAGE, DEFAULT_GLOBAL_REMINDER_MESSAGE)),
-            CONF_SENSOR_MESSAGES: config.get(CONF_SENSOR_MESSAGES, {}) if isinstance(config.get(CONF_SENSOR_MESSAGES, {}), dict) else {},
+            CONF_SENSOR_MESSAGES: {
+                entity_id: settings
+                for entity_id, settings in config.get(CONF_SENSOR_MESSAGES, {}).items()
+                if isinstance(entity_id, str) and entity_id in monitored_sensors and isinstance(settings, dict)
+            }
+            if isinstance(config.get(CONF_SENSOR_MESSAGES, {}), dict)
+            else {},
             CONF_DELIVERY_MODE: str(config.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE)),
             CONF_SOUND_ENABLED: bool(config.get(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)),
             CONF_SOUND_NAME: str(config.get(CONF_SOUND_NAME, DEFAULT_SOUND_NAME)),
-            CONF_TARGET_SETTINGS: cleaned_target_settings,
+            CONF_TARGET_SETTINGS: {
+                target: settings for target, settings in cleaned_target_settings.items() if target in notify_targets
+            },
         }
 
         if cleaned[CONF_DELIVERY_MODE] not in VALID_DELIVERY_MODES:
@@ -573,35 +662,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
         for target in list(targets):
             target = str(target)
-            if delivery_mode == manager.delivery_mode and sound_enabled == manager.sound_enabled and sound_name == manager.sound_name:
-                await manager._send_notification_to_target(target, message)
-                continue
-
-            if delivery_mode in (DELIVERY_MODE_NORMAL, DELIVERY_MODE_BOTH):
-                await manager._async_call_notify_service(
-                    target,
-                    message,
-                    manager._build_notify_payload(
-                        target,
-                        message,
-                        critical=False,
-                        sound_enabled=sound_enabled,
-                        sound_name=sound_name,
-                    ),
-                )
-
-            if delivery_mode in (DELIVERY_MODE_CRITICAL, DELIVERY_MODE_BOTH):
-                await manager._async_call_notify_service(
-                    target,
-                    message,
-                    manager._build_notify_payload(
-                        target,
-                        message,
-                        critical=True,
-                        sound_enabled=sound_enabled,
-                        sound_name=sound_name,
-                    ),
-                )
+            await manager._send_notification_to_target(
+                target,
+                message,
+                entity_id=sensor,
+                delivery_mode_override=delivery_mode,
+                sound_enabled_override=sound_enabled,
+                sound_name_override=sound_name,
+            )
 
     hass.services.async_register(
         DOMAIN,

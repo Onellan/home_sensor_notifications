@@ -407,7 +407,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
                 <option value="critical" ${cfg.delivery_mode === "critical" ? "selected" : ""}>Ring / critical alert only</option>
                 <option value="both" ${cfg.delivery_mode === "both" ? "selected" : ""}>Both in-app and ring / critical</option>
               </select>
-              <div class="muted">This is the default for selected targets. You can override it per target below.</div>
+              <div class="muted">This is the default for selected targets. Generic notify services still receive a single normal notification, while mobile_app targets can use critical delivery.</div>
             </div>
             <div class="field">
               <label class="check-row compact">

@@ -183,6 +183,7 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
+            await _async_sync_enabled_state(self.hass, self._get_reconfigure_entry(), user_input)
             return self.async_update_reload_and_abort(
                 self._get_reconfigure_entry(),
                 data_updates=user_input,
@@ -209,6 +210,7 @@ class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
+            await _async_sync_enabled_state(self.hass, self.config_entry, user_input)
             return self.async_create_entry(title="", data=user_input)
 
         merged = {**self.config_entry.data, **self.config_entry.options}
@@ -216,3 +218,15 @@ class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=_build_schema(self.hass, merged),
         )
+
+
+async def _async_sync_enabled_state(
+    hass,
+    entry: config_entries.ConfigEntry,
+    user_input: dict[str, Any],
+) -> None:
+    """Keep runtime enabled storage aligned with config flow changes."""
+    manager = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if manager is None or CONF_ENABLED not in user_input:
+        return
+    await manager.set_enabled(bool(user_input[CONF_ENABLED]))
