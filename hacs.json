@@ -1,0 +1,8 @@
+{
+  "name": "Home Sensor Notifications",
+  "content_in_root": false,
+  "domains": ["home_sensor_notifications"],
+  "homeassistant": "2026.3.0",
+  "filename": "custom_components/home_sensor_notifications/manifest.json",
+  "render_readme": true
+}
