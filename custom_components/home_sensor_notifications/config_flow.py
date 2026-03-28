@@ -16,6 +16,7 @@ from .const import (
     CONF_NOTIFICATION_MODE,
     CONF_NOTIFY_TARGETS,
     CONF_REMINDER_MINUTES,
+    CONF_REMINDER_SECONDS,
     CONF_SENSOR_MESSAGES,
     CONF_SOUND_ENABLED,
     CONF_SOUND_NAME,
@@ -87,15 +88,18 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 )
             ),
             vol.Required(
-                CONF_REMINDER_MINUTES,
-                default=options.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES),
+                CONF_REMINDER_SECONDS,
+                default=options.get(
+                    CONF_REMINDER_SECONDS,
+                    int(options.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)) * 60,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1,
-                    max=1440,
+                    max=86400,
                     step=1,
                     mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="min",
+                    unit_of_measurement="sec",
                 )
             ),
             vol.Required(

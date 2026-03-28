@@ -32,6 +32,7 @@ from .const import (
     CONF_NOTIFICATION_MODE,
     CONF_NOTIFY_TARGETS,
     CONF_REMINDER_MINUTES,
+    CONF_REMINDER_SECONDS,
     CONF_SENSOR_MESSAGES,
     CONF_SOUND_ENABLED,
     CONF_SOUND_NAME,
@@ -41,6 +42,7 @@ from .const import (
     DEFAULT_GLOBAL_REMINDER_MESSAGE,
     DEFAULT_NOTIFICATION_MODE,
     DEFAULT_REMINDER_MINUTES,
+    DEFAULT_REMINDER_SECONDS,
     DEFAULT_SOUND_ENABLED,
     DEFAULT_SOUND_NAME,
     DELIVERY_MODE_BOTH,
@@ -112,6 +114,12 @@ class HomeSensorNotificationsManager:
     @property
     def reminder_minutes(self) -> int:
         return int(self.options.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES))
+
+    @property
+    def reminder_seconds(self) -> int:
+        if CONF_REMINDER_SECONDS in self.options:
+            return max(1, int(self.options.get(CONF_REMINDER_SECONDS, DEFAULT_REMINDER_SECONDS)))
+        return max(1, self.reminder_minutes * 60)
 
     @property
     def notification_mode(self) -> str:
@@ -258,7 +266,7 @@ class HomeSensorNotificationsManager:
 
         sensor_state.reminder_cancel = async_call_later(
             self.hass,
-            timedelta(minutes=self.reminder_minutes),
+            timedelta(seconds=self.reminder_seconds),
             lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
         )
 
@@ -279,7 +287,7 @@ class HomeSensorNotificationsManager:
 
         sensor_state.reminder_cancel = async_call_later(
             self.hass,
-            timedelta(minutes=self.reminder_minutes),
+            timedelta(seconds=self.reminder_seconds),
             lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
         )
 
@@ -534,7 +542,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
                 "config": {
                     CONF_MONITORED_SENSORS: manager.monitored_sensors,
                     CONF_NOTIFY_TARGETS: manager.notify_targets,
-                    CONF_REMINDER_MINUTES: manager.reminder_minutes,
+                    CONF_REMINDER_SECONDS: manager.reminder_seconds,
                     CONF_ENABLED: manager.enabled,
                     CONF_NOTIFICATION_MODE: manager.notification_mode,
                     CONF_GLOBAL_OPEN_MESSAGE: manager.global_open_message,
@@ -601,7 +609,15 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
         cleaned = {
             CONF_MONITORED_SENSORS: monitored_sensors,
             CONF_NOTIFY_TARGETS: notify_targets,
-            CONF_REMINDER_MINUTES: max(1, int(config.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES))),
+            CONF_REMINDER_SECONDS: max(
+                1,
+                int(
+                    config.get(
+                        CONF_REMINDER_SECONDS,
+                        int(config.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)) * 60,
+                    )
+                ),
+            ),
             CONF_ENABLED: bool(config.get(CONF_ENABLED, True)),
             CONF_NOTIFICATION_MODE: str(config.get(CONF_NOTIFICATION_MODE, DEFAULT_NOTIFICATION_MODE)),
             CONF_GLOBAL_OPEN_MESSAGE: str(config.get(CONF_GLOBAL_OPEN_MESSAGE, DEFAULT_GLOBAL_OPEN_MESSAGE)),

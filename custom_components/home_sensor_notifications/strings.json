@@ -8,7 +8,7 @@
         "data": {
           "monitored_sensors": "Door / window sensors to monitor",
           "notify_targets": "Notification targets",
-          "reminder_minutes": "Reminder interval (minutes)",
+          "reminder_seconds": "Reminder interval (seconds)",
           "enabled": "Notifications enabled",
           "notification_mode": "Notification message mode",
           "global_open_message": "Message when a monitored sensor opens",
@@ -22,7 +22,7 @@
         "data": {
           "monitored_sensors": "Door / window sensors to monitor",
           "notify_targets": "Notification targets",
-          "reminder_minutes": "Reminder interval (minutes)",
+          "reminder_seconds": "Reminder interval (seconds)",
           "enabled": "Notifications enabled",
           "notification_mode": "Notification message mode",
           "global_open_message": "Message when a monitored sensor opens",
@@ -43,7 +43,7 @@
         "data": {
           "monitored_sensors": "Door / window sensors to monitor",
           "notify_targets": "Notification targets",
-          "reminder_minutes": "Reminder interval (minutes)",
+          "reminder_seconds": "Reminder interval (seconds)",
           "enabled": "Notifications enabled",
           "notification_mode": "Notification message mode",
           "global_open_message": "Message when a monitored sensor opens",
@@ -69,6 +69,18 @@
         "message": {
           "name": "Message",
           "description": "Optional custom test message."
+        },
+        "delivery_mode": {
+          "name": "Delivery mode",
+          "description": "Optional override for normal, critical, or both delivery."
+        },
+        "sound_enabled": {
+          "name": "Enable sound",
+          "description": "Optional override to force sound on or off for the test."
+        },
+        "sound_name": {
+          "name": "Sound name",
+          "description": "Optional override sound name to use for the test."
         }
       }
     }

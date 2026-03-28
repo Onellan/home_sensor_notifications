@@ -115,6 +115,17 @@ class HomeSensorNotificationsPanel extends HTMLElement {
     this.showToast("Test notification sent");
   }
 
+  async sendSoundTest() {
+    const openSensor = this._config.monitored_sensors?.[0];
+    const data = {
+      delivery_mode: "critical",
+      sound_enabled: true,
+    };
+    if (openSensor) data.sensor = openSensor;
+    await this._hass.callService("home_sensor_notifications", "send_test_notification", data);
+    this.showToast("Sound test notification sent");
+  }
+
   renderCheckboxList(items, selected, onChange, subLabel) {
     return items
       .map(
@@ -150,10 +161,10 @@ class HomeSensorNotificationsPanel extends HTMLElement {
       });
     });
 
-    const reminder = root.getElementById("reminder_minutes");
+    const reminder = root.getElementById("reminder_seconds");
     if (reminder)
       reminder.addEventListener("input", (ev) => {
-        this._config.reminder_minutes = Number(ev.currentTarget.value || 1);
+        this._config.reminder_seconds = Number(ev.currentTarget.value || 1);
       });
 
     const enabled = root.getElementById("enabled");
@@ -244,6 +255,9 @@ class HomeSensorNotificationsPanel extends HTMLElement {
 
     const test = root.getElementById("testBtn");
     if (test) test.addEventListener("click", () => this.sendTest());
+
+    const soundTest = root.getElementById("soundTestBtn");
+    if (soundTest) soundTest.addEventListener("click", () => this.sendSoundTest());
   }
 
   renderTargetSettings(cfg) {
@@ -289,7 +303,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
     const cfg = this._config || {
       monitored_sensors: [],
       notify_targets: [],
-      reminder_minutes: 30,
+      reminder_seconds: 1800,
       enabled: true,
       notification_mode: "global",
       global_open_message: "{sensor} opened.",
@@ -397,8 +411,8 @@ class HomeSensorNotificationsPanel extends HTMLElement {
               </label>
             </div>
             <div class="field">
-              <label for="reminder_minutes">Reminder interval in minutes</label>
-              <input id="reminder_minutes" type="number" min="1" max="1440" value="${cfg.reminder_minutes || 30}">
+              <label for="reminder_seconds">Reminder interval in seconds</label>
+              <input id="reminder_seconds" type="number" min="1" max="86400" value="${cfg.reminder_seconds || 1800}">
             </div>
             <div class="field">
               <label for="delivery_mode">Default delivery mode</label>
@@ -479,6 +493,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
           <button id="saveBtn">${this._saving ? "Saving..." : "Save changes"}</button>
           <button class="secondary" id="reloadBtn">Reload panel</button>
           <button class="secondary" id="testBtn">Send test notification</button>
+          <button class="secondary" id="soundTestBtn">Send sound test</button>
         </div>
         `}
 

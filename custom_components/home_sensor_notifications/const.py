@@ -7,6 +7,7 @@ PLATFORMS = ["switch"]
 CONF_MONITORED_SENSORS = "monitored_sensors"
 CONF_NOTIFY_TARGETS = "notify_targets"
 CONF_REMINDER_MINUTES = "reminder_minutes"
+CONF_REMINDER_SECONDS = "reminder_seconds"
 CONF_ENABLED = "enabled"
 CONF_NOTIFICATION_MODE = "notification_mode"
 CONF_GLOBAL_OPEN_MESSAGE = "global_open_message"
@@ -19,6 +20,7 @@ CONF_TARGET_SETTINGS = "target_settings"
 
 DEFAULT_TITLE = NAME
 DEFAULT_REMINDER_MINUTES = 30
+DEFAULT_REMINDER_SECONDS = DEFAULT_REMINDER_MINUTES * 60
 DEFAULT_NOTIFICATION_MODE = "global"
 DEFAULT_GLOBAL_OPEN_MESSAGE = "{sensor} opened."
 DEFAULT_GLOBAL_REMINDER_MESSAGE = "Reminder: {sensor} is still open."

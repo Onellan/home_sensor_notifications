@@ -23,3 +23,25 @@ send_test_notification:
       example: Front door test notification.
       selector:
         text:
+    delivery_mode:
+      name: Delivery mode
+      description: Optional override for normal, critical, or both delivery.
+      example: critical
+      selector:
+        select:
+          options:
+            - normal
+            - critical
+            - both
+    sound_enabled:
+      name: Enable sound
+      description: Optional override to force sound on or off for the test.
+      example: true
+      selector:
+        boolean:
+    sound_name:
+      name: Sound name
+      description: Optional override sound name to use for the test.
+      example: default
+      selector:
+        text:
