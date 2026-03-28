@@ -1,0 +1,42 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="88" y1="76" x2="430" y2="434" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67D8FF"/>
+      <stop offset="0.55" stop-color="#7BE0B1"/>
+      <stop offset="1" stop-color="#FFD36E"/>
+    </linearGradient>
+    <linearGradient id="roof" x1="152" y1="134" x2="355" y2="270" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#135C75"/>
+      <stop offset="1" stop-color="#0E374B"/>
+    </linearGradient>
+    <linearGradient id="house" x1="156" y1="188" x2="336" y2="371" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF9EF"/>
+      <stop offset="1" stop-color="#DFF7F2"/>
+    </linearGradient>
+    <filter id="shadow" x="74" y="62" width="364" height="388" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="20"/>
+      <feGaussianBlur stdDeviation="18"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0313726 0 0 0 0 0.223529 0 0 0 0 0.294118 0 0 0 0.18 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_1" result="shape"/>
+    </filter>
+  </defs>
+  <rect x="48" y="48" width="416" height="416" rx="128" fill="url(#bg)"/>
+  <circle cx="390" cy="126" r="42" fill="#FF8B78"/>
+  <path d="M389.5 103C376.8 103 366.5 113.3 366.5 126C366.5 134.4 371 141.8 377.7 145.9V154.5C377.7 157.8 380.4 160.5 383.7 160.5H395.3C398.6 160.5 401.3 157.8 401.3 154.5V145.9C408 141.8 412.5 134.4 412.5 126C412.5 113.3 402.2 103 389.5 103Z" fill="#FFF9EF"/>
+  <path d="M389.5 169.5C395.575 169.5 400.5 164.575 400.5 158.5H378.5C378.5 164.575 383.425 169.5 389.5 169.5Z" fill="#0E374B"/>
+  <path d="M424 114C428.4 118.9 431 125.3 431 132.2" stroke="#FFF9EF" stroke-width="10" stroke-linecap="round"/>
+  <path d="M348 84C352.4 79.1 358.8 76.2 365.9 76" stroke="#FFF9EF" stroke-width="10" stroke-linecap="round"/>
+  <g filter="url(#shadow)">
+    <path d="M256 110L366 201.5V344C366 359.464 353.464 372 338 372H174C158.536 372 146 359.464 146 344V201.5L256 110Z" fill="url(#house)"/>
+    <path d="M121 216.5L244.5 113.7C251.2 108.1 260.8 108.1 267.5 113.7L391 216.5" stroke="url(#roof)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M214 372V286C214 272.745 224.745 262 238 262H274C287.255 262 298 272.745 298 286V372" fill="#0E374B"/>
+    <rect x="291" y="225" width="42" height="58" rx="16" fill="#9BE8D4"/>
+    <path d="M312 239V269" stroke="#0E374B" stroke-width="10" stroke-linecap="round"/>
+    <path d="M297 254H327" stroke="#0E374B" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <path d="M120 332C138.7 351.2 165.8 363.2 195.8 363.2" stroke="#FFF9EF" stroke-width="12" stroke-linecap="round" opacity="0.85"/>
+  <path d="M108 286C109.8 274.1 114.2 262.8 120.8 252.9" stroke="#FFF9EF" stroke-width="12" stroke-linecap="round" opacity="0.7"/>
+</svg>

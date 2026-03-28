@@ -62,6 +62,10 @@ class HomeSensorNotificationsPanel extends HTMLElement {
     );
   }
 
+  brandIconUrl() {
+    return "/api/home_sensor_notifications/static/home-sensor-notifications-mark.svg";
+  }
+
   ensureSensorMessage(entityId) {
     if (!this._config.sensor_messages) this._config.sensor_messages = {};
     if (!this._config.sensor_messages[entityId]) {
@@ -318,70 +322,216 @@ class HomeSensorNotificationsPanel extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
+          --brand-ink: #12384b;
+          --brand-sky: #67d8ff;
+          --brand-mint: #7be0b1;
+          --brand-sun: #ffd36e;
+          --brand-coral: #ff8b78;
           --card-bg: var(--ha-card-background, var(--card-background-color, #fff));
           --border-color: var(--divider-color, rgba(0,0,0,.12));
           display: block;
           padding: 24px;
           color: var(--primary-text-color);
-          background: var(--primary-background-color);
+          background:
+            radial-gradient(circle at top left, rgba(103, 216, 255, 0.12), transparent 26%),
+            radial-gradient(circle at top right, rgba(255, 139, 120, 0.12), transparent 22%),
+            linear-gradient(180deg, rgba(123, 224, 177, 0.06), transparent 24%),
+            var(--primary-background-color);
           box-sizing: border-box;
           font-family: var(--paper-font-body1_-_font-family);
         }
-        .wrap { max-width: 1280px; margin: 0 auto; }
+        .wrap { max-width: 1320px; margin: 0 auto; }
         .hero {
-          background: linear-gradient(135deg, rgba(33,150,243,.18), rgba(76,175,80,.14));
-          border-radius: 24px;
-          padding: 24px;
-          margin-bottom: 20px;
+          position: relative;
+          overflow: hidden;
+          background:
+            radial-gradient(circle at top right, rgba(255, 211, 110, 0.52), transparent 28%),
+            radial-gradient(circle at bottom left, rgba(103, 216, 255, 0.38), transparent 32%),
+            linear-gradient(135deg, rgba(17, 76, 102, 0.96), rgba(11, 48, 65, 0.98));
+          border-radius: 32px;
+          padding: 28px;
+          margin-bottom: 22px;
           border: 1px solid var(--border-color);
         }
-        .hero h1 { margin: 0 0 8px; font-size: 30px; }
-        .hero p { margin: 0; opacity: .85; }
+        .hero::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background:
+            linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px),
+            linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px);
+          background-size: 28px 28px;
+          mask-image: linear-gradient(180deg, rgba(0,0,0,0.8), transparent 82%);
+          pointer-events: none;
+        }
+        .hero-inner {
+          position: relative;
+          display: grid;
+          grid-template-columns: minmax(0, 1.8fr) minmax(160px, 0.8fr);
+          gap: 24px;
+          align-items: center;
+          z-index: 1;
+        }
+        .brand-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 14px;
+          margin-bottom: 14px;
+          border-radius: 999px;
+          background: rgba(255, 249, 239, 0.16);
+          color: #fff9ef;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          backdrop-filter: blur(8px);
+        }
+        .brand-badge strong { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+        .brand-badge span { font-size: 12px; opacity: 0.9; }
+        .hero h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 42px); color: #fffdf7; }
+        .hero p {
+          margin: 0;
+          max-width: 760px;
+          color: rgba(255, 249, 239, 0.88);
+          line-height: 1.55;
+        }
+        .hero-stats {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 20px;
+        }
+        .hero-stat {
+          min-width: 120px;
+          padding: 12px 14px;
+          border-radius: 18px;
+          background: rgba(255, 249, 239, 0.12);
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          color: #fffdf7;
+        }
+        .hero-stat strong {
+          display: block;
+          font-size: 22px;
+          line-height: 1.1;
+          margin-bottom: 4px;
+        }
+        .hero-stat span {
+          font-size: 12px;
+          letter-spacing: .04em;
+          text-transform: uppercase;
+          opacity: 0.82;
+        }
+        .hero-mark {
+          justify-self: end;
+          width: min(220px, 100%);
+          aspect-ratio: 1;
+          padding: 16px;
+          border-radius: 28px;
+          background: linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.08));
+          border: 1px solid rgba(255,255,255,0.16);
+          box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+          backdrop-filter: blur(10px);
+        }
+        .hero-mark img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
         .card {
-          background: var(--card-bg);
-          border: 1px solid var(--border-color);
-          border-radius: 24px;
+          position: relative;
+          background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)), var(--card-bg);
+          border: 1px solid rgba(18, 56, 75, 0.08);
+          border-radius: 26px;
           padding: 20px;
-          box-shadow: 0 8px 24px rgba(0,0,0,.08);
+          box-shadow: 0 12px 30px rgba(17, 49, 65, 0.08);
         }
-        h2 { margin: 0 0 14px; font-size: 20px; }
+        .card::after {
+          content: "";
+          position: absolute;
+          inset: 0 0 auto 0;
+          height: 4px;
+          border-radius: 26px 26px 0 0;
+          background: linear-gradient(90deg, var(--brand-sky), var(--brand-mint), var(--brand-sun));
+          opacity: 0.9;
+        }
+        h2 { margin: 0 0 14px; font-size: 20px; color: var(--brand-ink); }
         h3 { margin: 18px 0 10px; font-size: 16px; }
         .muted { color: var(--secondary-text-color); font-size: 12px; }
         .check-list { display: flex; flex-direction: column; gap: 10px; max-height: 320px; overflow: auto; }
         .check-row {
           display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px;
-          border: 1px solid var(--border-color); border-radius: 16px; cursor: pointer;
+          border: 1px solid rgba(18, 56, 75, 0.1); border-radius: 16px; cursor: pointer;
+          background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)), var(--card-bg);
         }
         .check-row.compact { padding: 10px 0; border: none; border-radius: 0; }
         .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
         .field input[type="number"], .field input[type="text"], .field select, textarea {
-          background: var(--card-bg); color: var(--primary-text-color); border: 1px solid var(--border-color);
+          background: var(--card-bg); color: var(--primary-text-color); border: 1px solid rgba(18, 56, 75, 0.12);
           border-radius: 14px; padding: 12px; font: inherit; box-sizing: border-box; width: 100%;
         }
         textarea { min-height: 100px; resize: vertical; }
         .inline { display: flex; gap: 12px; align-items: center; }
         .status-pill {
           display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px;
-          background: rgba(76,175,80,.14); border: 1px solid var(--border-color); margin-right: 8px; margin-bottom: 8px;
+          background: rgba(123, 224, 177, 0.2); border: 1px solid rgba(18, 56, 75, 0.08); margin-right: 8px; margin-bottom: 8px;
         }
         .footer { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
         button {
-          border: none; border-radius: 14px; padding: 12px 16px; font: inherit; cursor: pointer;
-          background: var(--primary-color); color: var(--text-primary-color, #fff);
+          border: none; border-radius: 16px; padding: 12px 16px; font: inherit; font-weight: 600; cursor: pointer;
+          background: linear-gradient(135deg, #0f6785, #169576); color: #fffdf7;
+          box-shadow: 0 12px 24px rgba(14, 73, 97, 0.18);
         }
         button.secondary {
-          background: var(--card-bg); color: var(--primary-text-color); border: 1px solid var(--border-color);
+          background: var(--card-bg); color: var(--brand-ink); border: 1px solid rgba(18, 56, 75, 0.12);
+          box-shadow: none;
         }
         .error { margin: 16px 0; background: rgba(244,67,54,.12); border: 1px solid rgba(244,67,54,.35); color: var(--error-color, #b00020); border-radius: 16px; padding: 12px; }
-        .toast { position: sticky; bottom: 16px; margin-top: 16px; background: rgba(76,175,80,.18); border: 1px solid rgba(76,175,80,.35); padding: 12px 14px; border-radius: 14px; width: fit-content; }
-        .target-card { border: 1px solid var(--border-color); border-radius: 18px; padding: 14px; margin-bottom: 14px; }
+        .toast {
+          position: sticky;
+          bottom: 16px;
+          margin-top: 16px;
+          background: rgba(123, 224, 177, 0.22);
+          border: 1px solid rgba(18, 56, 75, 0.12);
+          padding: 12px 14px;
+          border-radius: 14px;
+          width: fit-content;
+        }
+        .target-card { border: 1px solid rgba(18, 56, 75, 0.08); border-radius: 20px; padding: 14px; margin-bottom: 14px; background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02)), var(--card-bg); }
         .target-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+        @media (max-width: 900px) {
+          .hero-inner { grid-template-columns: 1fr; }
+          .hero-mark { justify-self: start; width: 160px; }
+        }
       </style>
       <div class="wrap">
         <div class="hero">
-          <h1>Home Sensor Notifications</h1>
-          <p>Choose monitored sensors, recipients, repeat timing, shared or per-sensor messages, and whether each phone gets a normal in-app alert, a ring / critical alert, or both.</p>
+          <div class="hero-inner">
+            <div>
+              <div class="brand-badge">
+                <strong>Home Watch</strong>
+                <span>Playful alerts for doors, windows, and openings</span>
+              </div>
+              <h1>Home Sensor Notifications</h1>
+              <p>Choose monitored sensors, recipients, repeat timing, shared or per-sensor messages, and whether each phone gets a normal in-app alert, a ring / critical alert, or both.</p>
+              <div class="hero-stats">
+                <div class="hero-stat">
+                  <strong>${(cfg.monitored_sensors || []).length}</strong>
+                  <span>Tracked Sensors</span>
+                </div>
+                <div class="hero-stat">
+                  <strong>${(cfg.notify_targets || []).length}</strong>
+                  <span>Alert Targets</span>
+                </div>
+                <div class="hero-stat">
+                  <strong>${this._openSensors.length}</strong>
+                  <span>Open Right Now</span>
+                </div>
+              </div>
+            </div>
+            <div class="hero-mark">
+              <img src="${this.brandIconUrl()}" alt="Home Sensor Notifications icon">
+            </div>
+          </div>
         </div>
 
         ${this._loading ? `<div class="card">Loading configuration...</div>` : `
