@@ -163,12 +163,12 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
-
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
         merged = {**self.config_entry.data, **self.config_entry.options}
-        return self.async_show_form(step_id="init", data_schema=_build_schema(self.hass, merged))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_build_schema(self.hass, merged),
+        )
