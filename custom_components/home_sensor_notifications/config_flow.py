@@ -8,6 +8,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_DELIVERY_MODE,
     CONF_ENABLED,
     CONF_GLOBAL_OPEN_MESSAGE,
     CONF_GLOBAL_REMINDER_MESSAGE,
@@ -16,11 +17,20 @@ from .const import (
     CONF_NOTIFY_TARGETS,
     CONF_REMINDER_MINUTES,
     CONF_SENSOR_MESSAGES,
+    CONF_SOUND_ENABLED,
+    CONF_SOUND_NAME,
+    CONF_TARGET_SETTINGS,
+    DEFAULT_DELIVERY_MODE,
     DEFAULT_GLOBAL_OPEN_MESSAGE,
     DEFAULT_GLOBAL_REMINDER_MESSAGE,
     DEFAULT_NOTIFICATION_MODE,
     DEFAULT_REMINDER_MINUTES,
+    DEFAULT_SOUND_ENABLED,
+    DEFAULT_SOUND_NAME,
     DEFAULT_TITLE,
+    DELIVERY_MODE_BOTH,
+    DELIVERY_MODE_CRITICAL,
+    DELIVERY_MODE_NORMAL,
     DOMAIN,
     NOTIFY_DOMAIN,
     NOTIFY_SEND_MESSAGE,
@@ -40,6 +50,12 @@ def _available_notify_targets(hass) -> list[str]:
 _NOTIFICATION_MODE_OPTIONS = [
     {"label": "Use the same message for all sensors", "value": "global"},
     {"label": "Use custom messages per sensor", "value": "per_sensor"},
+]
+
+_DELIVERY_MODE_OPTIONS = [
+    {"label": "In-app notification only", "value": DELIVERY_MODE_NORMAL},
+    {"label": "Ring / critical alert only", "value": DELIVERY_MODE_CRITICAL},
+    {"label": "Both in-app and ring / critical", "value": DELIVERY_MODE_BOTH},
 ]
 
 
@@ -98,6 +114,30 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 )
             ),
             vol.Required(
+                CONF_DELIVERY_MODE,
+                default=options.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_DELIVERY_MODE_OPTIONS,
+                    multiple=False,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=False,
+                )
+            ),
+            vol.Required(
+                CONF_SOUND_ENABLED,
+                default=options.get(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED),
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_SOUND_NAME,
+                default=options.get(CONF_SOUND_NAME, DEFAULT_SOUND_NAME),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    multiline=False,
+                    type=selector.TextSelectorType.TEXT,
+                )
+            ),
+            vol.Required(
                 CONF_GLOBAL_OPEN_MESSAGE,
                 default=options.get(CONF_GLOBAL_OPEN_MESSAGE, DEFAULT_GLOBAL_OPEN_MESSAGE),
             ): selector.TextSelector(
@@ -119,6 +159,10 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_SENSOR_MESSAGES,
                 default=options.get(CONF_SENSOR_MESSAGES, {}),
             ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_TARGET_SETTINGS,
+                default=options.get(CONF_TARGET_SETTINGS, {}),
+            ): selector.ObjectSelector(),
         }
     )
 
@@ -126,7 +170,7 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
 class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Home Sensor Notifications."""
 
-    VERSION = 2
+    VERSION = 3
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         if self._async_current_entries():
