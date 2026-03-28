@@ -157,7 +157,7 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry):
-        return HomeSensorNotificationsOptionsFlow(config_entry)
+        return HomeSensorNotificationsOptionsFlow()
 
 
 class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
