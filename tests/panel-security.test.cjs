@@ -94,4 +94,3 @@ test("panel escapes Home Assistant and stored configuration values", () => {
   assert.ok(!panel.shadowRoot.innerHTML.includes('data-entity-id="binary_sensor.door" autofocus'));
   assert.ok(!panel.shadowRoot.innerHTML.includes('value="default" autofocus'));
 });
-

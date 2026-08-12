@@ -88,4 +88,3 @@ async def test_migrate_entry_rejects_newer_major_version(hass) -> None:
 
     assert not await async_migrate_entry(hass, entry)
     assert entry.version == 4
-
