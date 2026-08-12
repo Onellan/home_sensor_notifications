@@ -5,11 +5,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from homeassistant.core import Context
 from homeassistant.exceptions import Unauthorized
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.home_sensor_notifications import (
     _async_register_panel,
     _async_unregister_panel,
     async_setup,
+    async_setup_entry,
+    async_unload_entry,
 )
 from custom_components.home_sensor_notifications.const import (
     DOMAIN,
@@ -78,3 +81,47 @@ async def test_panel_registration_is_idempotent_across_reload() -> None:
 
         await _async_register_panel(hass, "entry-id")
         assert register_panel.await_count == 2
+
+
+async def test_config_entry_setup_unload_setup_lifecycle(hass) -> None:
+    """A config entry can be unloaded and set up again without stale resources."""
+    hass.data[DOMAIN] = {}
+    entry = MockConfigEntry(domain=DOMAIN, data={})
+    entry.add_to_hass(hass)
+    manager = Mock()
+    manager.async_initialize = AsyncMock()
+    manager.async_shutdown = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.home_sensor_notifications.HomeSensorNotificationsManager",
+            return_value=manager,
+        ) as manager_class,
+        patch(
+            "custom_components.home_sensor_notifications._async_register_panel",
+            new=AsyncMock(),
+        ) as register_panel,
+        patch(
+            "custom_components.home_sensor_notifications._async_unregister_panel",
+        ) as unregister_panel,
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(),
+        ) as forward_setups,
+        patch.object(
+            hass.config_entries,
+            "async_unload_platforms",
+            new=AsyncMock(return_value=True),
+        ) as unload_platforms,
+    ):
+        assert await async_setup_entry(hass, entry)
+        assert await async_unload_entry(hass, entry)
+        assert await async_setup_entry(hass, entry)
+
+    assert manager_class.call_count == 2
+    assert register_panel.await_count == 2
+    assert forward_setups.await_count == 2
+    unload_platforms.assert_awaited_once()
+    manager.async_shutdown.assert_awaited_once()
+    unregister_panel.assert_called_once()
