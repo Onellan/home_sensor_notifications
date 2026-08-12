@@ -1,9 +1,9 @@
 {
   "domain": "home_sensor_notifications",
   "name": "Home Sensor Notifications",
-  "version": "1.1.0",
-  "documentation": "https://github.com/onellan/home-sensor-notifications",
-  "issue_tracker": "https://github.com/onellan/home-sensor-notifications/issues",
+  "version": "1.2.0",
+  "documentation": "https://github.com/Onellan/home_sensor_notifications",
+  "issue_tracker": "https://github.com/Onellan/home_sensor_notifications/issues",
   "codeowners": ["@onellan"],
   "config_flow": true,
   "integration_type": "service",

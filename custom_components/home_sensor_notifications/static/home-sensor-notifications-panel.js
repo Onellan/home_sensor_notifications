@@ -1,3 +1,16 @@
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
+
 class HomeSensorNotificationsPanel extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
@@ -132,17 +145,20 @@ class HomeSensorNotificationsPanel extends HTMLElement {
 
   renderCheckboxList(items, selected, onChange, subLabel) {
     return items
-      .map(
-        (item) => `
+      .map((item) => {
+        const entityId = item.entity_id || item;
+        const label = item.name || item;
+        const detail = subLabel ? subLabel(item) : "";
+        return `
       <label class="check-row">
-        <input type="checkbox" data-entity-id="${item.entity_id || item}" ${selected.includes(item.entity_id || item) ? "checked" : ""} data-action="${onChange}">
+        <input type="checkbox" data-entity-id="${escapeHtml(entityId)}" ${selected.includes(entityId) ? "checked" : ""} data-action="${escapeHtml(onChange)}">
         <span>
-          <strong>${item.name || item}</strong>
-          ${subLabel ? `<div class="muted">${subLabel(item)}</div>` : ""}
+          <strong>${escapeHtml(label)}</strong>
+          ${subLabel ? `<div class="muted">${escapeHtml(detail)}</div>` : ""}
         </span>
       </label>
-    `
-      )
+    `;
+      })
       .join("");
   }
 
@@ -277,12 +293,12 @@ class HomeSensorNotificationsPanel extends HTMLElement {
         return `
         <div class="target-card">
           <div class="target-head">
-            <strong>${info.name}</strong>
+            <strong>${escapeHtml(info.name)}</strong>
             <span class="muted">${mobile ? "mobile_app target" : "generic notify target"}</span>
           </div>
           <div class="field">
             <label>Delivery mode</label>
-            <select data-target-delivery="${target}">
+            <select data-target-delivery="${escapeHtml(target)}">
               <option value="normal" ${settings.delivery_mode === "normal" ? "selected" : ""}>In-app notification only</option>
               <option value="critical" ${settings.delivery_mode === "critical" ? "selected" : ""} ${mobile ? "" : "disabled"}>Ring / critical alert only</option>
               <option value="both" ${settings.delivery_mode === "both" ? "selected" : ""} ${mobile ? "" : "disabled"}>Both in-app and ring / critical</option>
@@ -290,12 +306,12 @@ class HomeSensorNotificationsPanel extends HTMLElement {
             <div class="muted">${mobile ? "Mobile app targets can use alarm / critical delivery." : "Generic notify targets fall back to normal notifications even if you select a richer mode."}</div>
           </div>
           <label class="check-row compact">
-            <input type="checkbox" data-target-sound-enabled="${target}" ${settings.sound_enabled ? "checked" : ""}>
+            <input type="checkbox" data-target-sound-enabled="${escapeHtml(target)}" ${settings.sound_enabled ? "checked" : ""}>
             <span><strong>Enable sound</strong><div class="muted">For iPhone, set a sound file name or use default. Android alarm delivery uses the alarm stream.</div></span>
           </label>
           <div class="field">
             <label>Sound name</label>
-            <input type="text" data-target-sound-name="${target}" value="${settings.sound_name || "default"}" placeholder="default or your imported iOS sound file">
+            <input type="text" data-target-sound-name="${escapeHtml(target)}" value="${escapeHtml(settings.sound_name || "default")}" placeholder="default or your imported iOS sound file">
           </div>
         </div>
       `;
@@ -529,7 +545,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
               </div>
             </div>
             <div class="hero-mark">
-              <img src="${this.brandIconUrl()}" alt="Home Sensor Notifications icon">
+              <img src="${escapeHtml(this.brandIconUrl())}" alt="Home Sensor Notifications icon">
             </div>
           </div>
         </div>
@@ -562,7 +578,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
             </div>
             <div class="field">
               <label for="reminder_seconds">Reminder interval in seconds</label>
-              <input id="reminder_seconds" type="number" min="1" max="86400" value="${cfg.reminder_seconds || 1800}">
+              <input id="reminder_seconds" type="number" min="1" max="86400" value="${escapeHtml(cfg.reminder_seconds || 1800)}">
             </div>
             <div class="field">
               <label for="delivery_mode">Default delivery mode</label>
@@ -581,7 +597,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
             </div>
             <div class="field">
               <label for="sound_name">Default sound name</label>
-              <input id="sound_name" type="text" value="${cfg.sound_name || "default"}" placeholder="default or custom iOS sound file name">
+              <input id="sound_name" type="text" value="${escapeHtml(cfg.sound_name || "default")}" placeholder="default or custom iOS sound file name">
             </div>
           </section>
 
@@ -596,12 +612,12 @@ class HomeSensorNotificationsPanel extends HTMLElement {
             </div>
             <div class="field">
               <label for="global_open_message">Open notification message</label>
-              <textarea id="global_open_message">${cfg.global_open_message || ""}</textarea>
+              <textarea id="global_open_message">${escapeHtml(cfg.global_open_message || "")}</textarea>
               <div class="muted">Placeholders: {sensor}, {entity_id}, {state}</div>
             </div>
             <div class="field">
               <label for="global_reminder_message">Reminder message</label>
-              <textarea id="global_reminder_message">${cfg.global_reminder_message || ""}</textarea>
+              <textarea id="global_reminder_message">${escapeHtml(cfg.global_reminder_message || "")}</textarea>
             </div>
           </section>
 
@@ -618,14 +634,14 @@ class HomeSensorNotificationsPanel extends HTMLElement {
               const messages = this.ensureSensorMessage(entityId);
               return `
                 <div class="target-card">
-                  <h3>${this.sensorName(entityId)}</h3>
+                  <h3>${escapeHtml(this.sensorName(entityId))}</h3>
                   <div class="field">
                     <label>Open message</label>
-                    <textarea data-sensor-open="${entityId}">${messages.open_message || ""}</textarea>
+                    <textarea data-sensor-open="${escapeHtml(entityId)}">${escapeHtml(messages.open_message || "")}</textarea>
                   </div>
                   <div class="field">
                     <label>Reminder message</label>
-                    <textarea data-sensor-reminder="${entityId}">${messages.reminder_message || ""}</textarea>
+                    <textarea data-sensor-reminder="${escapeHtml(entityId)}">${escapeHtml(messages.reminder_message || "")}</textarea>
                   </div>
                 </div>
               `;
@@ -635,7 +651,7 @@ class HomeSensorNotificationsPanel extends HTMLElement {
 
           <section class="card" style="grid-column: 1 / -1;">
             <h2>Currently open sensors</h2>
-            ${this._openSensors.length ? this._openSensors.map((entityId) => `<span class="status-pill">${this.sensorName(entityId)}</span>`).join("") : `<div class="muted">No selected sensor is currently open.</div>`}
+            ${this._openSensors.length ? this._openSensors.map((entityId) => `<span class="status-pill">${escapeHtml(this.sensorName(entityId))}</span>`).join("") : `<div class="muted">No selected sensor is currently open.</div>`}
           </section>
         </div>
 
@@ -647,8 +663,8 @@ class HomeSensorNotificationsPanel extends HTMLElement {
         </div>
         `}
 
-        ${this._error ? `<div class="error">${this._error}</div>` : ""}
-        ${this._toast ? `<div class="toast">${this._toast}</div>` : ""}
+        ${this._error ? `<div class="error">${escapeHtml(this._error)}</div>` : ""}
+        ${this._toast ? `<div class="toast">${escapeHtml(this._toast)}</div>` : ""}
       </div>
     `;
 

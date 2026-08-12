@@ -175,6 +175,7 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     """Handle a config flow for Home Sensor Notifications."""
 
     VERSION = 3
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         if self._async_current_entries():
@@ -188,7 +189,7 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             await _async_sync_enabled_state(self.hass, self._get_reconfigure_entry(), user_input)
-            return self.async_update_reload_and_abort(
+            return self.async_update_and_abort(
                 self._get_reconfigure_entry(),
                 data_updates=user_input,
             )

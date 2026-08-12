@@ -13,6 +13,7 @@ from homeassistant.components.frontend import async_remove_panel
 from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import Unauthorized
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
@@ -69,6 +70,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+CONFIG_ENTRY_VERSION = 3
+CONFIG_ENTRY_MINOR_VERSION = 1
+DATA_WEBSOCKET_REGISTERED = "websocket_registered"
+DATA_PANEL_REGISTERED = "panel_registered"
 SERVICE_SCHEMA = vol.Schema(
     {
         vol.Optional(ATTR_SENSOR): str,
@@ -502,12 +507,19 @@ def _available_binary_sensors(hass: HomeAssistant) -> list[dict[str, str]]:
     return entities
 
 
-async def _async_register_panel(hass: HomeAssistant, entry_id: str) -> None:
+async def _async_register_static_path(hass: HomeAssistant) -> None:
     panel_dir = Path(__file__).parent / STATIC_PANEL_DIR
     panel_url = f"/api/{DOMAIN}/static"
     await hass.http.async_register_static_paths(
         [StaticPathConfig(panel_url, str(panel_dir), False)]
     )
+
+
+async def _async_register_panel(hass: HomeAssistant, entry_id: str) -> None:
+    if hass.data[DOMAIN].get(DATA_PANEL_REGISTERED):
+        return
+
+    panel_url = f"/api/{DOMAIN}/static"
     await async_register_panel(
         hass,
         frontend_url_path=PANEL_URL_PATH,
@@ -516,14 +528,23 @@ async def _async_register_panel(hass: HomeAssistant, entry_id: str) -> None:
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
         config={PANEL_CONFIG_KEY_ENTRY_ID: entry_id},
-        require_admin=False,
+        require_admin=True,
     )
+    hass.data[DOMAIN][DATA_PANEL_REGISTERED] = True
+
+
+@callback
+def _async_unregister_panel(hass: HomeAssistant) -> None:
+    if not hass.data[DOMAIN].pop(DATA_PANEL_REGISTERED, False):
+        return
+    async_remove_panel(hass, PANEL_URL_PATH)
 
 
 def _register_websocket_commands(hass: HomeAssistant) -> None:
-    if hass.data[DOMAIN].get("websocket_registered"):
+    if hass.data[DOMAIN].get(DATA_WEBSOCKET_REGISTERED):
         return
 
+    @websocket_api.require_admin
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_GET_CONFIG})
     @websocket_api.async_response
     async def websocket_get_config(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
@@ -560,6 +581,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
             },
         )
 
+    @websocket_api.require_admin
     @websocket_api.websocket_command(
         {
             vol.Required("type"): WS_TYPE_SAVE_CONFIG,
@@ -643,21 +665,97 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
         hass.config_entries.async_update_entry(entry, options=cleaned)
         manager: HomeSensorNotificationsManager = hass.data[DOMAIN][entry.entry_id]
         await manager.set_enabled(cleaned[CONF_ENABLED])
-        await hass.config_entries.async_reload(entry.entry_id)
         connection.send_result(msg["id"], {"saved": True})
 
     websocket_api.async_register_command(hass, websocket_get_config)
     websocket_api.async_register_command(hass, websocket_save_config)
-    hass.data[DOMAIN]["websocket_registered"] = True
+    hass.data[DOMAIN][DATA_WEBSOCKET_REGISTERED] = True
+
+
+def _migrate_config_values(values: dict[str, Any], *, include_defaults: bool) -> dict[str, Any]:
+    """Migrate one config-entry data or options mapping to the current schema."""
+    migrated = dict(values)
+
+    if CONF_REMINDER_SECONDS not in migrated:
+        if CONF_REMINDER_MINUTES in migrated:
+            migrated[CONF_REMINDER_SECONDS] = max(
+                1,
+                int(migrated[CONF_REMINDER_MINUTES]) * 60,
+            )
+        elif include_defaults:
+            migrated[CONF_REMINDER_SECONDS] = DEFAULT_REMINDER_SECONDS
+    migrated.pop(CONF_REMINDER_MINUTES, None)
+
+    if include_defaults:
+        migrated.setdefault(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE)
+        migrated.setdefault(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)
+        migrated.setdefault(CONF_SOUND_NAME, DEFAULT_SOUND_NAME)
+        migrated.setdefault(CONF_TARGET_SETTINGS, {})
+
+    return migrated
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entries created by earlier integration versions."""
+    if entry.version > CONFIG_ENTRY_VERSION:
+        _LOGGER.error(
+            "Cannot migrate config entry from newer version %s.%s",
+            entry.version,
+            entry.minor_version,
+        )
+        return False
+
+    if (
+        entry.version == CONFIG_ENTRY_VERSION
+        and entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION
+    ):
+        return True
+
+    try:
+        migrated_data = _migrate_config_values(entry.data, include_defaults=True)
+        migrated_options = _migrate_config_values(entry.options, include_defaults=False)
+    except (TypeError, ValueError):
+        _LOGGER.exception(
+            "Unable to migrate config entry %s from version %s.%s",
+            entry.entry_id,
+            entry.version,
+            entry.minor_version,
+        )
+        return False
+
+    hass.config_entries.async_update_entry(
+        entry,
+        data=migrated_data,
+        options=migrated_options,
+        version=CONFIG_ENTRY_VERSION,
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+    )
+    _LOGGER.info(
+        "Migrated config entry %s to version %s.%s",
+        entry.entry_id,
+        CONFIG_ENTRY_VERSION,
+        CONFIG_ENTRY_MINOR_VERSION,
+    )
+    return True
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    await _async_register_static_path(hass)
     _register_websocket_commands(hass)
 
     async def async_send_test_notification(call: ServiceCall) -> None:
+        if call.context.user_id is not None:
+            user = await hass.auth.async_get_user(call.context.user_id)
+            if user is None or not user.is_admin:
+                raise Unauthorized(context=call.context)
+
         managers: dict[str, HomeSensorNotificationsManager] = hass.data[DOMAIN]
-        manager_entries = [value for key, value in managers.items() if key != "websocket_registered"]
+        manager_entries = [
+            value
+            for value in managers.values()
+            if isinstance(value, HomeSensorNotificationsManager)
+        ]
         if not manager_entries:
             _LOGGER.warning("No Home Sensor Notifications entry is configured")
             return
@@ -715,5 +813,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         manager: HomeSensorNotificationsManager = hass.data[DOMAIN].pop(entry.entry_id)
         await manager.async_shutdown()
-        async_remove_panel(hass, PANEL_URL_PATH)
+        _async_unregister_panel(hass)
     return unload_ok
