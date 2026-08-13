@@ -26,3 +26,18 @@ test("panel source versions in-flight loads and disconnect cleanup", () => {
   assert.match(source, /clearTimeout\(this\._toastTimer\)/);
   assert.match(source, /if \(!this\._connected \|\| requestId !== this\._requestId\) return/);
 });
+
+test("panel places live sensor status and actions before configuration cards", () => {
+  const source = loadPanelSource();
+  const header = source.indexOf('<header class="hero">');
+  const openSensors = source.indexOf('<section class="priority-row"');
+  const actions = source.indexOf('<footer class="footer">');
+  const configuration = source.indexOf('<div class="grid"><section class="card"><h2>Monitored sensors</h2>');
+
+  assert.ok(header >= 0);
+  assert.ok(openSensors > header);
+  assert.ok(actions > openSensors);
+  assert.ok(configuration > actions);
+  assert.match(source, /\.grid \{ grid-template-columns:minmax\(0,1\.2fr\) minmax\(0,1fr\)/);
+  assert.match(source, /@media \(max-width:760px\) \{ \.grid \{ grid-template-columns:1fr/);
+});
