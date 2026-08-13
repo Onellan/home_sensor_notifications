@@ -44,6 +44,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0; Node 24
       - run: node --check custom_components/home_sensor_notifications/static/home-sensor-notifications-panel.js
       - run: node --test tests/panel-security.test.cjs
+      - run: node --test tests/panel-behavior.test.cjs
 
   hassfest:
     name: Hassfest
