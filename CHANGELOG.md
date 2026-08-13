@@ -4,6 +4,10 @@ All notable changes are documented here following [Keep a Changelog](https://kee
 
 ## Unreleased
 
+## 1.2.3 - 2026-08-13
+
+- Version the panel script URL to invalidate stale browser caches after HACS upgrades.
+
 ## 1.2.2 - 2026-08-13
 
 - Restored the Home Assistant 2026.6 minimum version so HACS can offer this release to compatible installations.

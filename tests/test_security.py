@@ -101,6 +101,9 @@ async def test_panel_registration_is_idempotent_across_reload() -> None:
         await panel_helpers.async_register_panel(hass, "entry-id")
         await panel_helpers.async_register_panel(hass, "entry-id")
         register_panel.assert_awaited_once()
+        assert register_panel.await_args.kwargs["js_url"].endswith(
+            f"home-sensor-notifications-panel.js?v={panel_helpers.PANEL_VERSION}"
+        )
 
         panel_helpers.async_unregister_panel(hass)
         panel_helpers.async_unregister_panel(hass)

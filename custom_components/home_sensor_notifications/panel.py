@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from homeassistant.components.frontend import async_remove_panel
@@ -21,6 +22,9 @@ from .const import (
 )
 
 DATA_PANEL_REGISTERED = "panel_registered"
+PANEL_VERSION = json.loads((Path(__file__).parent / "manifest.json").read_text(encoding="utf-8"))[
+    "version"
+]
 
 
 async def async_register_static_path(hass: HomeAssistant) -> None:
@@ -40,7 +44,7 @@ async def async_register_panel(hass: HomeAssistant, entry_id: str) -> None:
         hass,
         frontend_url_path=PANEL_URL_PATH,
         webcomponent_name=PANEL_WEBCOMPONENT,
-        js_url=f"{panel_url}/{PANEL_JS_FILENAME}",
+        js_url=f"{panel_url}/{PANEL_JS_FILENAME}?v={PANEL_VERSION}",
         sidebar_title=PANEL_TITLE,
         sidebar_icon=PANEL_ICON,
         config={PANEL_CONFIG_KEY_ENTRY_ID: entry_id},
