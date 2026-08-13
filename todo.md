@@ -102,11 +102,11 @@ The custom panel was reviewed in Chromium at 1440px, 360px, and 320px widths wit
 
 ## Completion criteria for the next release
 
-- [ ] Security regression tests pass for admin authorization and HTML injection.
-- [ ] Config entries migrate and setup/reload/unload cleanly on every supported Home Assistant version.
-- [ ] HACS, Hassfest, lint, tests, and JS checks are green locally and remotely.
-- [ ] The README, manifest version, HACS metadata, tag, and GitHub release agree.
-- [ ] A clean Home Assistant test instance completes configuration, panel save, open/reminder/close behavior, switch enable/disable, normal notification, critical notification, restart, and uninstall without log errors.
+- [x] Security regression tests pass for admin authorization and HTML injection.
+- [x] Config entries migrate and setup/reload/unload cleanly on every supported Home Assistant version.
+- [x] HACS, Hassfest, lint, tests, and JS checks are green locally and remotely.
+- [x] The README, manifest version, HACS metadata, tag, and GitHub release agree.
+- [x] A clean Home Assistant test instance completes configuration, panel save, open/reminder/close behavior, switch enable/disable, normal notification, critical notification, restart, and uninstall without log errors.
 
 ## Reference guidance
 
