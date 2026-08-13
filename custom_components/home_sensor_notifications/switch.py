@@ -3,11 +3,10 @@ from __future__ import annotations
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import CONF_ENABLED, DOMAIN
+from .const import CONF_ENABLED
+from .runtime import get_manager
 
 
 async def async_setup_entry(
@@ -18,7 +17,7 @@ async def async_setup_entry(
     async_add_entities([HomeSensorNotificationsEnabledSwitch(hass, entry)], True)
 
 
-class HomeSensorNotificationsEnabledSwitch(RestoreEntity, SwitchEntity):
+class HomeSensorNotificationsEnabledSwitch(SwitchEntity):
     """Switch entity to enable/disable notifications."""
 
     _attr_has_entity_name = True
@@ -33,28 +32,21 @@ class HomeSensorNotificationsEnabledSwitch(RestoreEntity, SwitchEntity):
         self._attr_is_on = entry.options.get(CONF_ENABLED, entry.data.get(CONF_ENABLED, True))
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, self.entry.entry_id)},
-            "name": self.entry.title,
-            "manufacturer": "Custom",
-            "model": "Home Sensor Notifications",
-            "entry_type": DeviceEntryType.SERVICE,
-        }
-
-    async def async_added_to_hass(self) -> None:
-        manager = self.hass.data[DOMAIN][self.entry.entry_id]
-        if (last_state := await self.async_get_last_state()) is not None:
-            self._attr_is_on = last_state.state == "on"
-        else:
-            self._attr_is_on = manager.enabled
+    def available(self) -> bool:
+        """Expose a configuration problem rather than a synthetic service device."""
+        manager = get_manager(self.entry)
+        return manager is not None and bool(manager.monitored_sensors and manager.notify_targets)
 
     async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True
-        await self.hass.data[DOMAIN][self.entry.entry_id].set_enabled(True)
+        manager = get_manager(self.entry)
+        if manager is not None:
+            await manager.async_set_enabled(True)
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
-        await self.hass.data[DOMAIN][self.entry.entry_id].set_enabled(False)
+        manager = get_manager(self.entry)
+        if manager is not None:
+            await manager.async_set_enabled(False)
         self.async_write_ha_state()

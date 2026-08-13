@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
-from pathlib import Path
+import asyncio
 import logging
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import time as datetime_time
+from datetime import timedelta
 from typing import Any, cast
 
 import voluptuous as vol
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.components import websocket_api
-from homeassistant.components.frontend import async_remove_panel
-from homeassistant.components.panel_custom import async_register_panel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, ServiceCall, callback
-from homeassistant.exceptions import Unauthorized
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
-from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from . import panel as panel_helpers
 from .const import (
     ATTR_DELIVERY_MODE,
     ATTR_MESSAGE,
@@ -27,21 +26,30 @@ from .const import (
     ATTR_TARGETS,
     CONF_DELIVERY_MODE,
     CONF_ENABLED,
+    CONF_ESCALATION_SECONDS,
     CONF_GLOBAL_OPEN_MESSAGE,
     CONF_GLOBAL_REMINDER_MESSAGE,
     CONF_MONITORED_SENSORS,
     CONF_NOTIFICATION_MODE,
+    CONF_NOTIFY_ON_CLOSE,
     CONF_NOTIFY_TARGETS,
+    CONF_QUIET_HOURS_END,
+    CONF_QUIET_HOURS_START,
     CONF_REMINDER_MINUTES,
     CONF_REMINDER_SECONDS,
     CONF_SENSOR_MESSAGES,
+    CONF_SENSOR_REMINDER_SECONDS,
     CONF_SOUND_ENABLED,
     CONF_SOUND_NAME,
     CONF_TARGET_SETTINGS,
     DEFAULT_DELIVERY_MODE,
+    DEFAULT_ESCALATION_SECONDS,
     DEFAULT_GLOBAL_OPEN_MESSAGE,
     DEFAULT_GLOBAL_REMINDER_MESSAGE,
     DEFAULT_NOTIFICATION_MODE,
+    DEFAULT_NOTIFY_ON_CLOSE,
+    DEFAULT_QUIET_HOURS_END,
+    DEFAULT_QUIET_HOURS_START,
     DEFAULT_REMINDER_MINUTES,
     DEFAULT_REMINDER_SECONDS,
     DEFAULT_SOUND_ENABLED,
@@ -51,39 +59,23 @@ from .const import (
     DELIVERY_MODE_NORMAL,
     DOMAIN,
     NOTIFY_DOMAIN,
-    PANEL_CONFIG_KEY_ENTRY_ID,
-    PANEL_ICON,
-    PANEL_JS_FILENAME,
-    PANEL_TITLE,
-    PANEL_URL_PATH,
-    PANEL_WEBCOMPONENT,
+    NOTIFY_SEND_MESSAGE,
     PLATFORMS,
     SERVICE_SEND_TEST_NOTIFICATION,
-    STATE_CLOSED,
     STATE_OPEN,
-    STATIC_PANEL_DIR,
     VALID_DELIVERY_MODES,
     WS_TYPE_GET_CONFIG,
     WS_TYPE_SAVE_CONFIG,
 )
+from .runtime import get_manager
+from .schemas import PANEL_CONFIG_SCHEMA, SERVICE_SCHEMA
 
 _LOGGER = logging.getLogger(__name__)
 
-STORAGE_VERSION = 1
 CONFIG_ENTRY_VERSION = 3
 CONFIG_ENTRY_MINOR_VERSION = 1
 DATA_WEBSOCKET_REGISTERED = "websocket_registered"
-DATA_PANEL_REGISTERED = "panel_registered"
-SERVICE_SCHEMA = vol.Schema(
-    {
-        vol.Optional(ATTR_SENSOR): str,
-        vol.Optional(ATTR_TARGETS): [str],
-        vol.Optional(ATTR_MESSAGE): str,
-        vol.Optional(ATTR_DELIVERY_MODE): str,
-        vol.Optional(ATTR_SOUND_ENABLED): bool,
-        vol.Optional(ATTR_SOUND_NAME): str,
-    }
-)
+DATA_SERVICE_REGISTERED = "service_registered"
 
 
 @dataclass
@@ -91,6 +83,9 @@ class OpenSensorState:
     """Runtime state for an open sensor."""
 
     reminder_cancel: Any | None = None
+    reminder_task: asyncio.Task[None] | None = None
+    opened_at: Any | None = None
+    escalated: bool = False
 
 
 class HomeSensorNotificationsManager:
@@ -99,14 +94,19 @@ class HomeSensorNotificationsManager:
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.hass = hass
         self.entry = entry
-        self.unsub_state_change = None
-        self.enabled = True
+        self.unsub_state_change: Callable[[], None] | None = None
         self.open_sensors: dict[str, OpenSensorState] = {}
-        self.store = Store(hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}.json")
+        self._shutting_down = False
+        self._notification_semaphore = asyncio.Semaphore(4)
 
     @property
     def options(self) -> dict[str, Any]:
         return {**self.entry.data, **self.entry.options}
+
+    @property
+    def enabled(self) -> bool:
+        """Enablement is persisted solely in config-entry options/data."""
+        return bool(self.options.get(CONF_ENABLED, True))
 
     @property
     def monitored_sensors(self) -> list[str]:
@@ -125,6 +125,45 @@ class HomeSensorNotificationsManager:
         if CONF_REMINDER_SECONDS in self.options:
             return max(1, int(self.options.get(CONF_REMINDER_SECONDS, DEFAULT_REMINDER_SECONDS)))
         return max(1, self.reminder_minutes * 60)
+
+    def reminder_seconds_for(self, entity_id: str) -> int:
+        """Return a bounded per-sensor override or the configured default."""
+        value = self.options.get(CONF_SENSOR_REMINDER_SECONDS, {}).get(entity_id)
+        try:
+            return min(86400, max(1, int(value))) if value is not None else self.reminder_seconds
+        except (TypeError, ValueError):
+            return self.reminder_seconds
+
+    @property
+    def notify_on_close(self) -> bool:
+        return bool(self.options.get(CONF_NOTIFY_ON_CLOSE, DEFAULT_NOTIFY_ON_CLOSE))
+
+    @property
+    def escalation_seconds(self) -> int:
+        try:
+            return min(
+                86400,
+                max(0, int(self.options.get(CONF_ESCALATION_SECONDS, DEFAULT_ESCALATION_SECONDS))),
+            )
+        except (TypeError, ValueError):
+            return DEFAULT_ESCALATION_SECONDS
+
+    def _in_quiet_hours(self) -> bool:
+        start = self.options.get(CONF_QUIET_HOURS_START, DEFAULT_QUIET_HOURS_START)
+        end = self.options.get(CONF_QUIET_HOURS_END, DEFAULT_QUIET_HOURS_END)
+        if not start or not end:
+            return False
+        try:
+            start_time = datetime_time.fromisoformat(start)
+            end_time = datetime_time.fromisoformat(end)
+        except ValueError:
+            return False
+        now = dt_util.now().time()
+        return (
+            start_time <= now < end_time
+            if start_time < end_time
+            else now >= start_time or now < end_time
+        )
 
     @property
     def notification_mode(self) -> str:
@@ -184,8 +223,7 @@ class HomeSensorNotificationsManager:
         return settings
 
     async def async_initialize(self) -> None:
-        stored = await self.store.async_load() or {}
-        self.enabled = stored.get(CONF_ENABLED, self.options.get(CONF_ENABLED, True))
+        _LOGGER.debug("Initializing Home Sensor Notifications entry %s", self.entry.entry_id)
         self._start_listener()
 
         for entity_id in self.monitored_sensors:
@@ -194,12 +232,21 @@ class HomeSensorNotificationsManager:
                 await self._mark_open(entity_id, send_initial=False)
 
     async def async_shutdown(self) -> None:
+        if self._shutting_down:
+            return
+        self._shutting_down = True
         if self.unsub_state_change is not None:
             self.unsub_state_change()
             self.unsub_state_change = None
         for sensor_state in self.open_sensors.values():
             if sensor_state.reminder_cancel is not None:
                 sensor_state.reminder_cancel()
+            if sensor_state.reminder_task is not None:
+                sensor_state.reminder_task.cancel()
+        await asyncio.gather(
+            *(state.reminder_task for state in self.open_sensors.values() if state.reminder_task),
+            return_exceptions=True,
+        )
         self.open_sensors.clear()
 
     async def async_handle_entry_update(self) -> None:
@@ -215,7 +262,11 @@ class HomeSensorNotificationsManager:
 
         for entity_id in current:
             state = self.hass.states.get(entity_id)
-            if state is not None and state.state == STATE_OPEN and entity_id not in self.open_sensors:
+            if (
+                state is not None
+                and state.state == STATE_OPEN
+                and entity_id not in self.open_sensors
+            ):
                 await self._mark_open(entity_id, send_initial=False)
 
     def _start_listener(self) -> None:
@@ -228,15 +279,22 @@ class HomeSensorNotificationsManager:
             self._async_state_changed,
         )
 
-    async def set_enabled(self, enabled: bool) -> None:
-        self.enabled = enabled
-        await self.store.async_save({CONF_ENABLED: enabled})
+    async def async_set_enabled(self, enabled: bool) -> None:
+        """Persist a switch change using the same options as every other edit."""
+        if enabled == self.enabled:
+            return
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            options={**self.entry.options, CONF_ENABLED: enabled},
+        )
 
     @callback
     def _clear_sensor(self, entity_id: str) -> None:
         sensor_state = self.open_sensors.pop(entity_id, None)
         if sensor_state and sensor_state.reminder_cancel is not None:
             sensor_state.reminder_cancel()
+        if sensor_state and sensor_state.reminder_task is not None:
+            sensor_state.reminder_task.cancel()
 
     async def _async_state_changed(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
@@ -251,50 +309,95 @@ class HomeSensorNotificationsManager:
         if new_state.state == STATE_OPEN:
             await self._mark_open(entity_id, send_initial=True)
         else:
+            if (
+                old_state is not None
+                and old_state.state == STATE_OPEN
+                and self.notify_on_close
+                and self.enabled
+            ):
+                await self._send_notification(
+                    f"{self._friendly_name(entity_id)} closed.",
+                    self.notify_targets,
+                    entity_id=entity_id,
+                )
             self._clear_sensor(entity_id)
 
     async def _mark_open(self, entity_id: str, send_initial: bool) -> None:
         sensor_state = self.open_sensors.get(entity_id)
         if sensor_state is None:
-            sensor_state = OpenSensorState()
+            sensor_state = OpenSensorState(opened_at=dt_util.utcnow())
             self.open_sensors[entity_id] = sensor_state
         elif sensor_state.reminder_cancel is not None:
             sensor_state.reminder_cancel()
             sensor_state.reminder_cancel = None
 
-        if send_initial and self.enabled:
+        if send_initial and self.enabled and not self._in_quiet_hours():
             await self._send_notification(
                 self._render_message(entity_id, is_reminder=False),
                 self.notify_targets,
                 entity_id=entity_id,
             )
 
-        sensor_state.reminder_cancel = async_call_later(
+        self._schedule_reminder(entity_id)
+
+    def _schedule_reminder(self, entity_id: str) -> None:
+        """Schedule exactly one later callback for an open sensor."""
+        if self._shutting_down or entity_id not in self.open_sensors:
+            return
+        seconds = self.reminder_seconds_for(entity_id)
+        _LOGGER.debug("Scheduling reminder for %s in %s seconds", entity_id, seconds)
+        self.open_sensors[entity_id].reminder_cancel = async_call_later(
             self.hass,
-            timedelta(seconds=self.reminder_seconds),
-            lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
+            timedelta(seconds=seconds),
+            lambda _: self._start_reminder_task(entity_id),
+        )
+
+    @callback
+    def _start_reminder_task(self, entity_id: str) -> None:
+        sensor_state = self.open_sensors.get(entity_id)
+        if self._shutting_down or sensor_state is None:
+            return
+        if sensor_state.reminder_task is not None and not sensor_state.reminder_task.done():
+            _LOGGER.debug("Skipping overlapping reminder for %s", entity_id)
+            return
+        sensor_state.reminder_task = self.hass.async_create_task(
+            self._async_send_reminder(entity_id),
+            f"{DOMAIN}_reminder_{entity_id}",
         )
 
     async def _async_send_reminder(self, entity_id: str) -> None:
         sensor_state = self.open_sensors.get(entity_id)
         current_state = self.hass.states.get(entity_id)
 
-        if sensor_state is None or current_state is None or current_state.state != STATE_OPEN:
+        if (
+            self._shutting_down
+            or sensor_state is None
+            or current_state is None
+            or current_state.state != STATE_OPEN
+        ):
             self._clear_sensor(entity_id)
             return
-
-        if self.enabled:
-            await self._send_notification(
-                self._render_message(entity_id, is_reminder=True),
-                self.notify_targets,
-                entity_id=entity_id,
-            )
-
-        sensor_state.reminder_cancel = async_call_later(
-            self.hass,
-            timedelta(seconds=self.reminder_seconds),
-            lambda _: self.hass.create_task(self._async_send_reminder(entity_id)),
-        )
+        try:
+            if self.enabled and not self._in_quiet_hours():
+                critical = (
+                    not sensor_state.escalated
+                    and self.escalation_seconds > 0
+                    and sensor_state.opened_at is not None
+                    and (dt_util.utcnow() - sensor_state.opened_at).total_seconds()
+                    >= self.escalation_seconds
+                )
+                await self._send_notification(
+                    self._render_message(entity_id, is_reminder=True),
+                    self.notify_targets,
+                    entity_id=entity_id,
+                    delivery_mode_override=DELIVERY_MODE_CRITICAL if critical else None,
+                )
+                sensor_state.escalated = sensor_state.escalated or critical
+        finally:
+            sensor_state = self.open_sensors.get(entity_id)
+            if sensor_state is not None:
+                sensor_state.reminder_task = None
+            self._schedule_reminder(entity_id)
 
     def _render_message(self, entity_id: str, is_reminder: bool) -> str:
         sensor_name = self._friendly_name(entity_id)
@@ -314,7 +417,9 @@ class HomeSensorNotificationsManager:
             return template.format(**context)
         except Exception:
             _LOGGER.exception("Invalid notification template for %s", entity_id)
-            fallback = DEFAULT_GLOBAL_REMINDER_MESSAGE if is_reminder else DEFAULT_GLOBAL_OPEN_MESSAGE
+            fallback = (
+                DEFAULT_GLOBAL_REMINDER_MESSAGE if is_reminder else DEFAULT_GLOBAL_OPEN_MESSAGE
+            )
             return fallback.format(**context)
 
     async def _send_notification(
@@ -323,16 +428,25 @@ class HomeSensorNotificationsManager:
         targets: list[str],
         *,
         entity_id: str | None = None,
+        delivery_mode_override: str | None = None,
     ) -> None:
         if not targets:
             _LOGGER.warning("No notify targets configured for %s", self.entry.title)
             return
 
-        for target in targets:
+        async def send_one(target: str) -> None:
             try:
-                await self._send_notification_to_target(target, message, entity_id=entity_id)
-            except Exception:
+                async with self._notification_semaphore:
+                    await self._send_notification_to_target(
+                        target,
+                        message,
+                        entity_id=entity_id,
+                        delivery_mode_override=delivery_mode_override,
+                    )
+            except HomeAssistantError:
                 _LOGGER.exception("Failed to send notification via notify.%s", target)
+
+        await asyncio.gather(*(send_one(target) for target in targets))
 
     async def _send_notification_to_target(
         self,
@@ -361,35 +475,34 @@ class HomeSensorNotificationsManager:
             else str(target_config.get(CONF_SOUND_NAME, self.sound_name))
         )
 
-        if delivery_mode in (DELIVERY_MODE_NORMAL, DELIVERY_MODE_BOTH):
-            await self._async_call_notify_service(
+        # "Both" is intentionally a single critical notification. Sending two
+        # messages with the same mobile-app tag replaces the first visible item.
+        critical = delivery_mode in (DELIVERY_MODE_CRITICAL, DELIVERY_MODE_BOTH)
+        await self._async_call_notify_service(
+            target,
+            message,
+            self._build_notify_payload(
                 target,
                 message,
-                self._build_notify_payload(
-                    target,
-                    message,
-                    entity_id=entity_id,
-                    critical=False,
-                    sound_enabled=sound_enabled,
-                    sound_name=sound_name,
-                ),
-            )
+                entity_id=entity_id,
+                critical=critical,
+                sound_enabled=sound_enabled,
+                sound_name=sound_name,
+            ),
+        )
 
-        if delivery_mode in (DELIVERY_MODE_CRITICAL, DELIVERY_MODE_BOTH):
-            await self._async_call_notify_service(
-                target,
-                message,
-                self._build_notify_payload(
-                    target,
-                    message,
-                    entity_id=entity_id,
-                    critical=True,
-                    sound_enabled=sound_enabled,
-                    sound_name=sound_name,
-                ),
+    async def _async_call_notify_service(
+        self, target: str, message: str, payload: dict[str, Any]
+    ) -> None:
+        if target.startswith("notify."):
+            await self.hass.services.async_call(
+                NOTIFY_DOMAIN,
+                NOTIFY_SEND_MESSAGE,
+                payload,
+                target={"entity_id": target},
+                blocking=True,
             )
-
-    async def _async_call_notify_service(self, target: str, message: str, payload: dict[str, Any]) -> None:
+            return
         await self.hass.services.async_call(
             NOTIFY_DOMAIN,
             target,
@@ -412,7 +525,7 @@ class HomeSensorNotificationsManager:
             "title": self.entry.title,
         }
 
-        if not target.startswith("mobile_app_"):
+        if not self._is_mobile_app_target(target):
             return payload
 
         data: dict[str, Any] = {
@@ -462,6 +575,12 @@ class HomeSensorNotificationsManager:
         return f"{DOMAIN}_{target}_{normalized_entity_id}"
 
     def _supports_critical_notifications(self, target: str) -> bool:
+        # The legacy mobile_app notify service is the documented path for the
+        # platform-specific critical payload. Generic notify entities receive a
+        # standards-compatible notify.send_message call instead.
+        return target.startswith("mobile_app_")
+
+    def _is_mobile_app_target(self, target: str) -> bool:
         return target.startswith("mobile_app_")
 
     def _friendly_name(self, entity_id: str) -> str:
@@ -472,8 +591,18 @@ class HomeSensorNotificationsManager:
 
 
 def _available_notify_targets(hass: HomeAssistant) -> list[dict[str, str]]:
+    """Return modern notify entities as well as supported legacy services."""
     services = hass.services.async_services().get(NOTIFY_DOMAIN, {})
     targets: list[dict[str, str]] = []
+    for state in sorted(hass.states.async_all(NOTIFY_DOMAIN), key=lambda item: item.entity_id):
+        entity_id = state.entity_id
+        targets.append(
+            {
+                "entity_id": entity_id,
+                "name": str(state.attributes.get("friendly_name", entity_id)),
+                "supports_mobile_app": "false",
+            }
+        )
     for service_name in sorted(
         service_name
         for service_name in services
@@ -487,6 +616,58 @@ def _available_notify_targets(hass: HomeAssistant) -> list[dict[str, str]]:
             }
         )
     return targets
+
+
+def _available_binary_sensor_ids(hass: HomeAssistant) -> set[str]:
+    return {item["entity_id"] for item in _available_binary_sensors(hass)}
+
+
+def _available_notify_target_ids(hass: HomeAssistant) -> set[str]:
+    return {item["entity_id"] for item in _available_notify_targets(hass)}
+
+
+def _configuration_issues(
+    hass: HomeAssistant, manager: HomeSensorNotificationsManager
+) -> list[str]:
+    """Return concise, user-safe configuration problems for the panel."""
+    issues: list[str] = []
+    missing_sensors = set(manager.monitored_sensors) - _available_binary_sensor_ids(hass)
+    missing_targets = set(manager.notify_targets) - _available_notify_target_ids(hass)
+    if missing_sensors:
+        issues.append(f"{len(missing_sensors)} configured sensor(s) are unavailable.")
+    if missing_targets:
+        issues.append(f"{len(missing_targets)} configured notification target(s) are unavailable.")
+    if not manager.monitored_sensors:
+        issues.append("Choose at least one monitored sensor.")
+    if not manager.notify_targets:
+        issues.append("Choose at least one notification target.")
+    return issues
+
+
+def _clean_panel_config(
+    hass: HomeAssistant,
+    manager: HomeSensorNotificationsManager,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate untrusted panel data, then allow only known/current config IDs."""
+    cleaned = PANEL_CONFIG_SCHEMA(config)
+    known_sensors = _available_binary_sensor_ids(hass) | set(manager.monitored_sensors)
+    known_targets = _available_notify_target_ids(hass) | set(manager.notify_targets)
+    invalid_sensors = set(cleaned[CONF_MONITORED_SENSORS]) - known_sensors
+    invalid_targets = set(cleaned[CONF_NOTIFY_TARGETS]) - known_targets
+    if invalid_sensors:
+        raise vol.Invalid(f"Unknown monitored sensor: {sorted(invalid_sensors)[0]}")
+    if invalid_targets:
+        raise vol.Invalid(f"Unknown notification target: {sorted(invalid_targets)[0]}")
+    if len(set(cleaned[CONF_MONITORED_SENSORS])) != len(cleaned[CONF_MONITORED_SENSORS]):
+        raise vol.Invalid("Monitored sensors must not contain duplicates")
+    if len(set(cleaned[CONF_NOTIFY_TARGETS])) != len(cleaned[CONF_NOTIFY_TARGETS]):
+        raise vol.Invalid("Notification targets must not contain duplicates")
+    if set(cleaned[CONF_SENSOR_MESSAGES]) - set(cleaned[CONF_MONITORED_SENSORS]):
+        raise vol.Invalid("Per-sensor messages must refer to monitored sensors")
+    if set(cleaned[CONF_TARGET_SETTINGS]) - set(cleaned[CONF_NOTIFY_TARGETS]):
+        raise vol.Invalid("Target settings must refer to selected notification targets")
+    return cleaned
 
 
 def _available_binary_sensors(hass: HomeAssistant) -> list[dict[str, str]]:
@@ -507,37 +688,10 @@ def _available_binary_sensors(hass: HomeAssistant) -> list[dict[str, str]]:
     return entities
 
 
-async def _async_register_static_path(hass: HomeAssistant) -> None:
-    panel_dir = Path(__file__).parent / STATIC_PANEL_DIR
-    panel_url = f"/api/{DOMAIN}/static"
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(panel_url, str(panel_dir), False)]
+def _has_loaded_entries(hass: HomeAssistant) -> bool:
+    return any(
+        get_manager(entry) is not None for entry in hass.config_entries.async_entries(DOMAIN)
     )
-
-
-async def _async_register_panel(hass: HomeAssistant, entry_id: str) -> None:
-    if hass.data[DOMAIN].get(DATA_PANEL_REGISTERED):
-        return
-
-    panel_url = f"/api/{DOMAIN}/static"
-    await async_register_panel(
-        hass,
-        frontend_url_path=PANEL_URL_PATH,
-        webcomponent_name=PANEL_WEBCOMPONENT,
-        js_url=f"{panel_url}/{PANEL_JS_FILENAME}",
-        sidebar_title=PANEL_TITLE,
-        sidebar_icon=PANEL_ICON,
-        config={PANEL_CONFIG_KEY_ENTRY_ID: entry_id},
-        require_admin=True,
-    )
-    hass.data[DOMAIN][DATA_PANEL_REGISTERED] = True
-
-
-@callback
-def _async_unregister_panel(hass: HomeAssistant) -> None:
-    if not hass.data[DOMAIN].pop(DATA_PANEL_REGISTERED, False):
-        return
-    async_remove_panel(hass, PANEL_URL_PATH)
 
 
 def _register_websocket_commands(hass: HomeAssistant) -> None:
@@ -554,7 +708,10 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
             return
 
         entry = entries[0]
-        manager: HomeSensorNotificationsManager = hass.data[DOMAIN][entry.entry_id]
+        manager = get_manager(entry)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration is not loaded")
+            return
         connection.send_result(
             msg["id"],
             {
@@ -577,6 +734,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
                 "available_sensors": _available_binary_sensors(hass),
                 "available_notify_targets": _available_notify_targets(hass),
                 "open_sensors": sorted(manager.open_sensors.keys()),
+                "issues": _configuration_issues(hass, manager),
                 "updated_at": dt_util.utcnow().isoformat(),
             },
         )
@@ -585,7 +743,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
     @websocket_api.websocket_command(
         {
             vol.Required("type"): WS_TYPE_SAVE_CONFIG,
-            vol.Required("config"): dict,
+            vol.Required("config"): PANEL_CONFIG_SCHEMA,
         }
     )
     @websocket_api.async_response
@@ -596,75 +754,16 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
             return
 
         entry = entries[0]
-        config = dict(msg["config"])
-        available_targets = {item["entity_id"] for item in _available_notify_targets(hass)}
-        cleaned_target_settings: dict[str, dict[str, Any]] = {}
-        raw_target_settings = config.get(CONF_TARGET_SETTINGS, {})
-        if isinstance(raw_target_settings, dict):
-            for target, settings in raw_target_settings.items():
-                if not isinstance(settings, dict):
-                    continue
-                target_name = str(target)
-                if target_name not in available_targets:
-                    continue
-                mode = str(settings.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE))
-                if mode not in VALID_DELIVERY_MODES:
-                    mode = DEFAULT_DELIVERY_MODE
-                cleaned_target_settings[target_name] = {
-                    CONF_DELIVERY_MODE: mode,
-                    CONF_SOUND_ENABLED: bool(settings.get(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)),
-                    CONF_SOUND_NAME: str(settings.get(CONF_SOUND_NAME, DEFAULT_SOUND_NAME)),
-                }
-
-        raw_monitored_sensors = config.get(CONF_MONITORED_SENSORS, [])
-        monitored_sensors = (
-            [str(entity_id) for entity_id in raw_monitored_sensors]
-            if isinstance(raw_monitored_sensors, list)
-            else []
-        )
-        raw_notify_targets = config.get(CONF_NOTIFY_TARGETS, [])
-        notify_targets = (
-            [str(target) for target in raw_notify_targets if str(target) in available_targets]
-            if isinstance(raw_notify_targets, list)
-            else []
-        )
-        cleaned = {
-            CONF_MONITORED_SENSORS: monitored_sensors,
-            CONF_NOTIFY_TARGETS: notify_targets,
-            CONF_REMINDER_SECONDS: max(
-                1,
-                int(
-                    config.get(
-                        CONF_REMINDER_SECONDS,
-                        int(config.get(CONF_REMINDER_MINUTES, DEFAULT_REMINDER_MINUTES)) * 60,
-                    )
-                ),
-            ),
-            CONF_ENABLED: bool(config.get(CONF_ENABLED, True)),
-            CONF_NOTIFICATION_MODE: str(config.get(CONF_NOTIFICATION_MODE, DEFAULT_NOTIFICATION_MODE)),
-            CONF_GLOBAL_OPEN_MESSAGE: str(config.get(CONF_GLOBAL_OPEN_MESSAGE, DEFAULT_GLOBAL_OPEN_MESSAGE)),
-            CONF_GLOBAL_REMINDER_MESSAGE: str(config.get(CONF_GLOBAL_REMINDER_MESSAGE, DEFAULT_GLOBAL_REMINDER_MESSAGE)),
-            CONF_SENSOR_MESSAGES: {
-                entity_id: settings
-                for entity_id, settings in config.get(CONF_SENSOR_MESSAGES, {}).items()
-                if isinstance(entity_id, str) and entity_id in monitored_sensors and isinstance(settings, dict)
-            }
-            if isinstance(config.get(CONF_SENSOR_MESSAGES, {}), dict)
-            else {},
-            CONF_DELIVERY_MODE: str(config.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE)),
-            CONF_SOUND_ENABLED: bool(config.get(CONF_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)),
-            CONF_SOUND_NAME: str(config.get(CONF_SOUND_NAME, DEFAULT_SOUND_NAME)),
-            CONF_TARGET_SETTINGS: {
-                target: settings for target, settings in cleaned_target_settings.items() if target in notify_targets
-            },
-        }
-
-        if cleaned[CONF_DELIVERY_MODE] not in VALID_DELIVERY_MODES:
-            cleaned[CONF_DELIVERY_MODE] = DEFAULT_DELIVERY_MODE
-
+        manager = get_manager(entry)
+        if manager is None:
+            connection.send_error(msg["id"], "not_loaded", "Integration is not loaded")
+            return
+        try:
+            cleaned = _clean_panel_config(hass, manager, msg["config"])
+        except vol.Invalid as err:
+            connection.send_error(msg["id"], "invalid_config", str(err))
+            return
         hass.config_entries.async_update_entry(entry, options=cleaned)
-        manager: HomeSensorNotificationsManager = hass.data[DOMAIN][entry.entry_id]
-        await manager.set_enabled(cleaned[CONF_ENABLED])
         connection.send_result(msg["id"], {"saved": True})
 
     websocket_api.async_register_command(hass, websocket_get_config)
@@ -672,7 +771,7 @@ def _register_websocket_commands(hass: HomeAssistant) -> None:
     hass.data[DOMAIN][DATA_WEBSOCKET_REGISTERED] = True
 
 
-def _migrate_config_values(values: dict[str, Any], *, include_defaults: bool) -> dict[str, Any]:
+def _migrate_config_values(values: Mapping[str, Any], *, include_defaults: bool) -> dict[str, Any]:
     """Migrate one config-entry data or options mapping to the current schema."""
     migrated = dict(values)
 
@@ -705,10 +804,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         return False
 
-    if (
-        entry.version == CONFIG_ENTRY_VERSION
-        and entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION
-    ):
+    if entry.version == CONFIG_ENTRY_VERSION and entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION:
         return True
 
     try:
@@ -741,7 +837,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
-    await _async_register_static_path(hass)
+    await panel_helpers.async_register_static_path(hass)
     _register_websocket_commands(hass)
 
     async def async_send_test_notification(call: ServiceCall) -> None:
@@ -750,11 +846,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             if user is None or not user.is_admin:
                 raise Unauthorized(context=call.context)
 
-        managers: dict[str, HomeSensorNotificationsManager] = hass.data[DOMAIN]
         manager_entries = [
-            value
-            for value in managers.values()
-            if isinstance(value, HomeSensorNotificationsManager)
+            manager
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if (manager := get_manager(entry)) is not None
         ]
         if not manager_entries:
             _LOGGER.warning("No Home Sensor Notifications entry is configured")
@@ -762,9 +857,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
         manager = manager_entries[0]
         sensor = call.data.get(ATTR_SENSOR)
-        targets = call.data.get(ATTR_TARGETS, manager.notify_targets)
+        if sensor is not None and sensor not in (
+            _available_binary_sensor_ids(hass) | set(manager.monitored_sensors)
+        ):
+            raise vol.Invalid(f"Unknown binary sensor: {sensor}")
+        targets = list(call.data.get(ATTR_TARGETS, manager.notify_targets))
+        known_targets = _available_notify_target_ids(hass) | set(manager.notify_targets)
+        unknown_targets = set(targets) - known_targets
+        if unknown_targets:
+            raise vol.Invalid(f"Unknown notification target: {sorted(unknown_targets)[0]}")
         message = call.data.get(ATTR_MESSAGE)
-        delivery_mode = str(call.data.get(ATTR_DELIVERY_MODE, manager.delivery_mode))
+        delivery_mode = call.data.get(ATTR_DELIVERY_MODE, manager.delivery_mode)
         sound_enabled = bool(call.data.get(ATTR_SOUND_ENABLED, manager.sound_enabled))
         sound_name = str(call.data.get(ATTR_SOUND_NAME, manager.sound_name))
 
@@ -774,16 +877,22 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             else:
                 message = manager._render_message(sensor, is_reminder=False)
 
-        for target in list(targets):
-            target = str(target)
-            await manager._send_notification_to_target(
-                target,
-                message,
-                entity_id=sensor,
-                delivery_mode_override=delivery_mode,
-                sound_enabled_override=sound_enabled,
-                sound_name_override=sound_name,
-            )
+        failures: list[str] = []
+        for target in targets:
+            try:
+                await manager._send_notification_to_target(
+                    target,
+                    message,
+                    entity_id=sensor,
+                    delivery_mode_override=delivery_mode,
+                    sound_enabled_override=sound_enabled,
+                    sound_name_override=sound_name,
+                )
+            except HomeAssistantError:
+                _LOGGER.exception("Test notification failed for target %s", target)
+                failures.append(target)
+        if failures:
+            raise HomeAssistantError(f"Test notification failed for {len(failures)} target(s)")
 
     hass.services.async_register(
         DOMAIN,
@@ -791,14 +900,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         async_send_test_notification,
         schema=SERVICE_SCHEMA,
     )
+    hass.data[DOMAIN][DATA_SERVICE_REGISTERED] = True
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manager = HomeSensorNotificationsManager(hass, entry)
-    hass.data[DOMAIN][entry.entry_id] = manager
+    entry.runtime_data = manager
     await manager.async_initialize()
-    await _async_register_panel(hass, entry.entry_id)
+    entry.async_on_unload(manager.async_shutdown)
+    await panel_helpers.async_register_panel(hass, entry.entry_id)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
@@ -811,7 +922,12 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        manager: HomeSensorNotificationsManager = hass.data[DOMAIN].pop(entry.entry_id)
-        await manager.async_shutdown()
-        _async_unregister_panel(hass)
+        manager = get_manager(entry)
+        if manager is not None:
+            await manager.async_shutdown()
+        entry.runtime_data = None
+        if not _has_loaded_entries(hass):
+            panel_helpers.async_unregister_panel(hass)
+            if hass.data[DOMAIN].pop(DATA_SERVICE_REGISTERED, False):
+                hass.services.async_remove(DOMAIN, SERVICE_SEND_TEST_NOTIFICATION)
     return unload_ok

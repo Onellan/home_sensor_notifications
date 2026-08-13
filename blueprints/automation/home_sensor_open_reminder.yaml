@@ -1,0 +1,45 @@
+blueprint:
+  name: Home Sensor Open Reminder
+  description: Send an alert and repeat reminders while a binary sensor remains open.
+  domain: automation
+  input:
+    sensor:
+      name: Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+    notify_action:
+      name: Notification action
+      selector:
+        action: {}
+    reminder_minutes:
+      name: Reminder interval (minutes)
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: min
+mode: restart
+trigger:
+  - platform: state
+    entity_id: !input sensor
+    to: "on"
+action:
+  - action: !input notify_action
+    data:
+      message: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} opened."
+  - repeat:
+      while:
+        - condition: state
+          entity_id: !input sensor
+          state: "on"
+      sequence:
+        - delay:
+            minutes: !input reminder_minutes
+        - condition: state
+          entity_id: !input sensor
+          state: "on"
+        - action: !input notify_action
+          data:
+            message: "Reminder: {{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} is still open."

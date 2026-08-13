@@ -1,0 +1,8 @@
+name: Feature request
+description: Suggest a user-facing improvement
+body:
+  - type: textarea
+    attributes:
+      label: Problem and proposed solution
+    validations:
+      required: true

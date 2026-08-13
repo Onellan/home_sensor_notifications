@@ -1,0 +1,14 @@
+name: Bug report
+description: Report a reproducible integration problem
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Remove secrets, URLs, message text, and notification target IDs.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true

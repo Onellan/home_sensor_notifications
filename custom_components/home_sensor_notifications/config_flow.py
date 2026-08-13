@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -10,21 +10,30 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_DELIVERY_MODE,
     CONF_ENABLED,
+    CONF_ESCALATION_SECONDS,
     CONF_GLOBAL_OPEN_MESSAGE,
     CONF_GLOBAL_REMINDER_MESSAGE,
     CONF_MONITORED_SENSORS,
     CONF_NOTIFICATION_MODE,
+    CONF_NOTIFY_ON_CLOSE,
     CONF_NOTIFY_TARGETS,
+    CONF_QUIET_HOURS_END,
+    CONF_QUIET_HOURS_START,
     CONF_REMINDER_MINUTES,
     CONF_REMINDER_SECONDS,
     CONF_SENSOR_MESSAGES,
+    CONF_SENSOR_REMINDER_SECONDS,
     CONF_SOUND_ENABLED,
     CONF_SOUND_NAME,
     CONF_TARGET_SETTINGS,
     DEFAULT_DELIVERY_MODE,
+    DEFAULT_ESCALATION_SECONDS,
     DEFAULT_GLOBAL_OPEN_MESSAGE,
     DEFAULT_GLOBAL_REMINDER_MESSAGE,
     DEFAULT_NOTIFICATION_MODE,
+    DEFAULT_NOTIFY_ON_CLOSE,
+    DEFAULT_QUIET_HOURS_END,
+    DEFAULT_QUIET_HOURS_START,
     DEFAULT_REMINDER_MINUTES,
     DEFAULT_SOUND_ENABLED,
     DEFAULT_SOUND_NAME,
@@ -39,13 +48,15 @@ from .const import (
 
 
 def _available_notify_targets(hass) -> list[str]:
-    """Return available notify targets (service names)."""
+    """Return modern notify entities and legacy notify service names."""
     services = hass.services.async_services().get(NOTIFY_DOMAIN, {})
-    return sorted(
+    modern_entities = [state.entity_id for state in hass.states.async_all(NOTIFY_DOMAIN)]
+    legacy_services = [
         service_name
         for service_name in services
         if service_name != NOTIFY_SEND_MESSAGE and not service_name.startswith("__")
-    )
+    ]
+    return sorted({*modern_entities, *legacy_services})
 
 
 _NOTIFICATION_MODE_OPTIONS = [
@@ -111,7 +122,7 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 default=options.get(CONF_NOTIFICATION_MODE, DEFAULT_NOTIFICATION_MODE),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=_NOTIFICATION_MODE_OPTIONS,
+                    options=cast(Any, _NOTIFICATION_MODE_OPTIONS),
                     multiple=False,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     custom_value=False,
@@ -122,7 +133,7 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 default=options.get(CONF_DELIVERY_MODE, DEFAULT_DELIVERY_MODE),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=_DELIVERY_MODE_OPTIONS,
+                    options=cast(Any, _DELIVERY_MODE_OPTIONS),
                     multiple=False,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     custom_value=False,
@@ -167,6 +178,30 @@ def _build_schema(hass, options: dict[str, Any] | None = None) -> vol.Schema:
                 CONF_TARGET_SETTINGS,
                 default=options.get(CONF_TARGET_SETTINGS, {}),
             ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_NOTIFY_ON_CLOSE,
+                default=options.get(CONF_NOTIFY_ON_CLOSE, DEFAULT_NOTIFY_ON_CLOSE),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ESCALATION_SECONDS,
+                default=options.get(CONF_ESCALATION_SECONDS, DEFAULT_ESCALATION_SECONDS),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=86400, step=1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
+            vol.Optional(
+                CONF_SENSOR_REMINDER_SECONDS,
+                default=options.get(CONF_SENSOR_REMINDER_SECONDS, {}),
+            ): selector.ObjectSelector(),
+            vol.Optional(
+                CONF_QUIET_HOURS_START,
+                default=options.get(CONF_QUIET_HOURS_START, DEFAULT_QUIET_HOURS_START),
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_QUIET_HOURS_END,
+                default=options.get(CONF_QUIET_HOURS_END, DEFAULT_QUIET_HOURS_END),
+            ): selector.TextSelector(),
         }
     )
 
@@ -188,7 +223,6 @@ class HomeSensorNotificationsConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            await _async_sync_enabled_state(self.hass, self._get_reconfigure_entry(), user_input)
             return self.async_update_and_abort(
                 self._get_reconfigure_entry(),
                 data_updates=user_input,
@@ -215,7 +249,6 @@ class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
-            await _async_sync_enabled_state(self.hass, self.config_entry, user_input)
             return self.async_create_entry(title="", data=user_input)
 
         merged = {**self.config_entry.data, **self.config_entry.options}
@@ -223,15 +256,3 @@ class HomeSensorNotificationsOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=_build_schema(self.hass, merged),
         )
-
-
-async def _async_sync_enabled_state(
-    hass,
-    entry: config_entries.ConfigEntry,
-    user_input: dict[str, Any],
-) -> None:
-    """Keep runtime enabled storage aligned with config flow changes."""
-    manager = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if manager is None or CONF_ENABLED not in user_input:
-        return
-    await manager.set_enabled(bool(user_input[CONF_ENABLED]))

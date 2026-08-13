@@ -8,13 +8,24 @@ from homeassistant.exceptions import Unauthorized
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.home_sensor_notifications import (
-    _async_register_panel,
-    _async_unregister_panel,
     async_setup,
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.home_sensor_notifications import panel as panel_helpers
 from custom_components.home_sensor_notifications.const import (
+    CONF_DELIVERY_MODE,
+    CONF_ENABLED,
+    CONF_GLOBAL_OPEN_MESSAGE,
+    CONF_GLOBAL_REMINDER_MESSAGE,
+    CONF_MONITORED_SENSORS,
+    CONF_NOTIFICATION_MODE,
+    CONF_NOTIFY_TARGETS,
+    CONF_REMINDER_SECONDS,
+    CONF_SENSOR_MESSAGES,
+    CONF_SOUND_ENABLED,
+    CONF_SOUND_NAME,
+    CONF_TARGET_SETTINGS,
     DOMAIN,
     SERVICE_SEND_TEST_NOTIFICATION,
     WS_TYPE_GET_CONFIG,
@@ -25,7 +36,7 @@ from custom_components.home_sensor_notifications.const import (
 async def test_websocket_configuration_requires_admin(hass, hass_ws_client) -> None:
     """A normal authenticated user cannot read or modify integration config."""
     with patch(
-        "custom_components.home_sensor_notifications._async_register_static_path",
+        "custom_components.home_sensor_notifications.panel_helpers.async_register_static_path",
         new=AsyncMock(),
     ):
         assert await async_setup(hass, {})
@@ -40,7 +51,23 @@ async def test_websocket_configuration_requires_admin(hass, hass_ws_client) -> N
 
     for message in (
         {"type": WS_TYPE_GET_CONFIG},
-        {"type": WS_TYPE_SAVE_CONFIG, "config": {}},
+        {
+            "type": WS_TYPE_SAVE_CONFIG,
+            "config": {
+                CONF_MONITORED_SENSORS: [],
+                CONF_NOTIFY_TARGETS: [],
+                CONF_REMINDER_SECONDS: 60,
+                CONF_ENABLED: True,
+                CONF_NOTIFICATION_MODE: "global",
+                CONF_GLOBAL_OPEN_MESSAGE: "Open",
+                CONF_GLOBAL_REMINDER_MESSAGE: "Reminder",
+                CONF_SENSOR_MESSAGES: {},
+                CONF_DELIVERY_MODE: "normal",
+                CONF_SOUND_ENABLED: False,
+                CONF_SOUND_NAME: "default",
+                CONF_TARGET_SETTINGS: {},
+            },
+        },
     ):
         await client.send_json_auto_id(message)
         response = await client.receive_json()
@@ -64,22 +91,22 @@ async def test_panel_registration_is_idempotent_across_reload() -> None:
 
     with (
         patch(
-            "custom_components.home_sensor_notifications.async_register_panel",
+            "custom_components.home_sensor_notifications.panel.ha_async_register_panel",
             new=AsyncMock(),
         ) as register_panel,
         patch(
-            "custom_components.home_sensor_notifications.async_remove_panel",
+            "custom_components.home_sensor_notifications.panel.async_remove_panel",
         ) as remove_panel,
     ):
-        await _async_register_panel(hass, "entry-id")
-        await _async_register_panel(hass, "entry-id")
+        await panel_helpers.async_register_panel(hass, "entry-id")
+        await panel_helpers.async_register_panel(hass, "entry-id")
         register_panel.assert_awaited_once()
 
-        _async_unregister_panel(hass)
-        _async_unregister_panel(hass)
+        panel_helpers.async_unregister_panel(hass)
+        panel_helpers.async_unregister_panel(hass)
         remove_panel.assert_called_once()
 
-        await _async_register_panel(hass, "entry-id")
+        await panel_helpers.async_register_panel(hass, "entry-id")
         assert register_panel.await_count == 2
 
 
@@ -98,11 +125,11 @@ async def test_config_entry_setup_unload_setup_lifecycle(hass) -> None:
             return_value=manager,
         ) as manager_class,
         patch(
-            "custom_components.home_sensor_notifications._async_register_panel",
+            "custom_components.home_sensor_notifications.panel_helpers.async_register_panel",
             new=AsyncMock(),
         ) as register_panel,
         patch(
-            "custom_components.home_sensor_notifications._async_unregister_panel",
+            "custom_components.home_sensor_notifications.panel_helpers.async_unregister_panel",
         ) as unregister_panel,
         patch.object(
             hass.config_entries,

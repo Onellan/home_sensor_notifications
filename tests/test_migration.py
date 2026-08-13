@@ -51,7 +51,10 @@ async def test_migrate_entry_to_3_1(
     assert entry.minor_version == 1
     assert CONF_REMINDER_MINUTES not in entry.data
     assert CONF_REMINDER_MINUTES not in entry.options
-    assert entry.options.get(CONF_REMINDER_SECONDS, entry.data[CONF_REMINDER_SECONDS]) == expected_seconds
+    assert (
+        entry.options.get(CONF_REMINDER_SECONDS, entry.data[CONF_REMINDER_SECONDS])
+        == expected_seconds
+    )
     assert entry.data[CONF_DELIVERY_MODE] == DEFAULT_DELIVERY_MODE
     assert entry.data[CONF_SOUND_ENABLED] is DEFAULT_SOUND_ENABLED
     assert entry.data[CONF_SOUND_NAME] == DEFAULT_SOUND_NAME

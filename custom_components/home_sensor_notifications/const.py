@@ -17,6 +17,11 @@ CONF_DELIVERY_MODE = "delivery_mode"
 CONF_SOUND_ENABLED = "sound_enabled"
 CONF_SOUND_NAME = "sound_name"
 CONF_TARGET_SETTINGS = "target_settings"
+CONF_NOTIFY_ON_CLOSE = "notify_on_close"
+CONF_QUIET_HOURS_START = "quiet_hours_start"
+CONF_QUIET_HOURS_END = "quiet_hours_end"
+CONF_ESCALATION_SECONDS = "escalation_seconds"
+CONF_SENSOR_REMINDER_SECONDS = "sensor_reminder_seconds"
 
 DEFAULT_TITLE = NAME
 DEFAULT_REMINDER_MINUTES = 30
@@ -27,6 +32,10 @@ DEFAULT_GLOBAL_REMINDER_MESSAGE = "Reminder: {sensor} is still open."
 DEFAULT_DELIVERY_MODE = "normal"
 DEFAULT_SOUND_ENABLED = False
 DEFAULT_SOUND_NAME = "default"
+DEFAULT_NOTIFY_ON_CLOSE = False
+DEFAULT_QUIET_HOURS_START = ""
+DEFAULT_QUIET_HOURS_END = ""
+DEFAULT_ESCALATION_SECONDS = 0
 
 DELIVERY_MODE_NORMAL = "normal"
 DELIVERY_MODE_CRITICAL = "critical"
@@ -44,6 +53,7 @@ ATTR_MESSAGE = "message"
 ATTR_DELIVERY_MODE = "delivery_mode"
 ATTR_SOUND_NAME = "sound_name"
 ATTR_SOUND_ENABLED = "sound_enabled"
+ATTR_CLOSE_NOTIFICATION = "close_notification"
 
 NOTIFY_DOMAIN = "notify"
 NOTIFY_SEND_MESSAGE = "send_message"
