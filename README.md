@@ -4,7 +4,7 @@ Home Sensor Notifications is a HACS custom integration for door, window, and ope
 
 ## Requirements
 
-- Home Assistant 2026.6 or newer (Python 3.14).
+- A currently supported Home Assistant installation.
 - At least one `binary_sensor` and a notification destination.
 - An administrator account to configure the integration, panel, and test action.
 
