@@ -13,6 +13,7 @@ from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, Unauthorized
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
@@ -71,6 +72,8 @@ from .runtime import get_manager
 from .schemas import PANEL_CONFIG_SCHEMA, SERVICE_SCHEMA
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 CONFIG_ENTRY_VERSION = 3
 CONFIG_ENTRY_MINOR_VERSION = 1
