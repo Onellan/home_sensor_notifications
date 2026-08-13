@@ -4,6 +4,11 @@ All notable changes are documented here following [Keep a Changelog](https://kee
 
 ## Unreleased
 
+## 1.2.1 - 2026-08-13
+
+- Prioritized currently open sensors and panel actions ahead of configuration cards.
+- Optimized the desktop card grid and mobile single-column layout for clearer use of space.
+
 ## 1.2.0 - 2026-08-13
 
 - Added strict input validation, notify entity support, redacted diagnostics, lifecycle hardening, and improved documentation.
